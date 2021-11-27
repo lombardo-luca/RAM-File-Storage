@@ -2,7 +2,7 @@ CC			=  gcc
 AR          =  ar
 CFLAGS	    += -Wall -pedantic -g
 ARFLAGS     =  rvs
-INCDIR      = ./includes -I ./threadpool
+INCDIR      = ./includes -I ./threadpool -I ./queue -I ./fileT
 INCLUDES	= -I. -I $(INCDIR)
 LDFLAGS 	= -L.
 OPTFLAGS	= #-O3 
@@ -19,10 +19,16 @@ TARGETS		= server client
 
 all		: $(TARGETS)
 
-server: server.o libPool.a
+server: server.o libPool.a libQueue.a libFile.a
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 libPool.a: ./includes/threadpool.o ./includes/threadpool.h
+	$(AR) $(ARFLAGS) $@ $<
+
+libQueue.a: ./includes/queue.o ./includes/queue.h
+	$(AR) $(ARFLAGS) $@ $<
+
+libFile.a: ./includes/fileT.o ./includes/fileT.h
 	$(AR) $(ARFLAGS) $@ $<
 
 server.o: server.c
@@ -33,6 +39,10 @@ client: client.o
 client.o: client.c
 
 ./includes/threadpool.o: ./includes/threadpool.c
+
+./includes/queue.o: ./includes/queue.c
+
+./includes/fileT.o: ./includes/fileT.c
 
 clean		: 
 	rm -f $(TARGETS)

@@ -29,6 +29,7 @@ int main(int argc, char *argv[]) {
 	struct sigaction siga;
 	char sockName[256] = "./mysock";		// nome del socket
 	int threadpoolSize = 1;					// numero di thread workers nella threadPool
+	int maxFiles = 1;						// massimo numero di file supportati
 	int sigPipe[2], requestPipe[2];
 	FILE *configFile;						// file di configurazione per il server
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
@@ -88,7 +89,6 @@ int main(int argc, char *argv[]) {
 		value++;
 
 		if (value != NULL) {
-			printf("Ho letto: %s\n", value);
 			option = strncpy(option, line, len);
 			option[len] = '\0';
 		}
@@ -102,17 +102,30 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-			printf("Dimensione della threadPool = %d\n", threadpoolSize);
+			printf("CONFIG: Dimensione della threadPool = %d\n", threadpoolSize);
 		}
 
 		else if (strcmp("sockName", option) == 0) {
 			strncpy(sockName, value, 256);
+			sockName[strcspn(sockName, "\n")] = 0;	// rimuovo la newline dal nome del socket
 
-			printf("Socket name = %s\n", sockName);
+			printf("CONFIG: Socket name = %s\n", sockName);
 		}
 
+		else if (strcmp("maxFiles", option) == 0) {
+			maxFiles = strtol(value, NULL, 0);
+
+			if (maxFiles <= 0) {
+				printf("Errore di configurazione: il numero massiomo di file dev'essere maggiore o uguale a 1.\n");
+				return 1;
+			}
+
+			printf("CONFIG: Numero massimo di file supportati = %d\n", maxFiles);
+		}
+
+
 		else {
-			printf("Errore: opzione di configurazione non riconosciuta.\n");
+			printf("Errore di configuraizone: opzione non riconosciuta.\n");
 			return 1;
 		}
 	}
