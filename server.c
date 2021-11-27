@@ -11,11 +11,11 @@
 #include <signal.h>
 #include <string.h>
 #include <assert.h>
+#include <stdatomic.h>
 
 #include <threadpool.h>
 
 #define UNIX_PATH_MAX 108 
-#define SOCKNAME "./mysock"
 #define BUFSIZE 256
 
 static void serverThread(void *par);
@@ -27,9 +27,13 @@ int main(int argc, char *argv[]) {
 	struct sockaddr_un sa;
 	sigset_t sigset;
 	struct sigaction siga;
-	volatile long quit = 0;
-	int n = 0;
+	char sockName[256] = "./mysock";		// nome del socket
+	int threadpoolSize = 1;					// numero di thread workers nella threadPool
 	int sigPipe[2], requestPipe[2];
+	FILE *configFile;						// file di configurazione per il server
+	volatile long quit = 0;					// se = 1, termina il server il prima possibile
+	sig_atomic_t numberOfConnections = 0;	// numero dei client attualmente connessi
+	int stopIncomingConnections = 0;		// se = 1, non accetta più nuove connessioni dai client
 
 	// maschero tutti i segnali 
 	if (sigfillset(&sigset) == -1) {
@@ -65,20 +69,58 @@ int main(int argc, char *argv[]) {
 	printf("File Storage Server avviato.\n");
 	fflush(stdout);
 
-	// verifico che l'argomento n sia corretto
-	if (argc < 2) {
-		perror("Inserisci come argomento il numero di thread nella pool.\n");
+	// apro il file di configurazione in sola lettura
+	if ((configFile = fopen("config/config.txt", "r")) == NULL) {
+		perror("configFile open");
 		return 1;
 	}
 
-	n = strtol(argv[1], NULL, 0);
+	char line[256];
+	char *value;
+	char *option = malloc(256);
+	int len = 0;
 
-	if (n <= 0) {
-		perror("Il numero di thread nella pool dev'essere maggiore o uguale a 1.\n");
-		return 1;
+	// leggo il file di configurazione una riga alla volta
+	while ((fgets(line, 256, configFile))!= NULL) {
+		// dalla riga opzione:valore estraggo solo il valore
+		value = strchr(line, ':');	
+		len = strlen(line) - strlen(value);
+		value++;
+
+		if (value != NULL) {
+			printf("Ho letto: %s\n", value);
+			option = strncpy(option, line, len);
+			option[len] = '\0';
+		}
+
+		// se l'opzione letta è threadpoolSize, configuro la dimensione della threadpool
+		if (strcmp("threadpoolSize", option) == 0) {
+			threadpoolSize = strtol(value, NULL, 0);
+
+			if (threadpoolSize <= 0) {
+				printf("Errore di configurazione: la dimensione della threadPool dev'essere maggiore o uguale a 1.\n");
+				return 1;
+			}
+
+			printf("Dimensione della threadPool = %d\n", threadpoolSize);
+		}
+
+		else if (strcmp("sockName", option) == 0) {
+			strncpy(sockName, value, 256);
+
+			printf("Socket name = %s\n", sockName);
+		}
+
+		else {
+			printf("Errore: opzione di configurazione non riconosciuta.\n");
+			return 1;
+		}
 	}
 
-	strncpy(sa.sun_path, SOCKNAME, UNIX_PATH_MAX);
+	free(option);
+	fclose(configFile);	// chiudo il file di configurazione
+
+	strncpy(sa.sun_path, sockName, UNIX_PATH_MAX);
 	sa.sun_family = AF_UNIX;
 
 	fd_skt = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -106,7 +148,7 @@ int main(int argc, char *argv[]) {
 
 	// creo la threadpool
 	threadpool_t *pool = NULL;
-	pool = createThreadPool(n, n);
+	pool = createThreadPool(threadpoolSize, threadpoolSize);
 
 	if (!pool) {
 		perror("createThreadPool.\n");
@@ -147,36 +189,46 @@ int main(int argc, char *argv[]) {
 				if (FD_ISSET(fd, &tmpset)) {
 					// se l'ho ricevuta da un sock connect, è una nuova richiesta di connessione
 					if (fd == fd_skt) {
-						if ((fd_c = accept(fd_skt, NULL, 0)) == -1) {
-							perror("accept");
-							return 1;
+						if (!stopIncomingConnections) {
+							if ((fd_c = accept(fd_skt, NULL, 0)) == -1) {
+								perror("accept");
+								return 1;
+							}
+
+							printf("Nuova connessione richiesta.\n");
+
+							long* args = malloc(3*sizeof(long));
+							args[0] = fd_c;
+			    			args[1] = (long) &quit;
+			    			args[2] = (long) requestPipe[1];
+							int r = addToThreadPool(pool, serverThread, (void*) args);
+
+							// task aggiunto alla pool con successo
+							if (r == 0) {
+								printf("SERVER: task aggiunto alla pool.\n");
+								numberOfConnections++;
+								continue;
+							}
+
+							// errore interno
+							else if (r < 0) {
+								perror("addToThreadPool");
+							}
+
+							// coda pendenti piena
+							else {
+								perror("coda pendenti piena");
+							}
+
+							close(fd_c);
 						}
 
-						printf("SERVER: nuova connessione richiesta.\n");
-
-						long* args = malloc(3*sizeof(long));
-						args[0] = fd_c;
-		    			args[1] = (long) &quit;
-		    			args[2] = (long) requestPipe[1];
-						int r = addToThreadPool(pool, serverThread, (void*) args);
-
-						// task aggiunto alla pool con successo
-						if (r == 0) {
-							printf("SERVER: task aggiunto alla pool.\n");
-							continue;
-						}
-
-						// errore interno
-						else if (r < 0) {
-							perror("addToThreadPool");
-						}
-
-						// coda pendenti piena
 						else {
-							perror("coda pendenti piena");
+							printf("Nuova connessione rifiutata: il server è in fase di terminazione.\n");
+							FD_CLR(fd, &set);
+							close(fd);
 						}
 
-						close(fd_c);
 						continue;
 					}
 
@@ -185,7 +237,21 @@ int main(int argc, char *argv[]) {
 						// leggo il descrittore dalla pipe
 						int fdr;
 						read(requestPipe[0], &fdr, sizeof(int));
-						// riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
+
+						// se il worker thread ha chiuso la connessione...
+						if (fdr == -1) {
+							numberOfConnections--;
+							// ...controllo se devo terminare il server
+							if (stopIncomingConnections && numberOfConnections <= 0) {
+								printf("Non ci sono altri client connessi, termino...\n");
+								quit = 1;
+								pthread_cancel(st);	// termino il signalThread
+							}
+
+							break;
+						}
+
+						// altrimenti riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
 						FD_SET(fdr, &set);
 
 						if (fdr > fd_max) {
@@ -195,10 +261,26 @@ int main(int argc, char *argv[]) {
 						continue;	
 					}
 
-					// se l'ho ricevuta dalla sigPipe, è un segnale di terminazione
+					/* se l'ho ricevuta dalla sigPipe, controllo se devo terminare immediatamente 
+					o solo smettere di accettare nuove connessioni */
 					else if (fd == sigPipe[0]) {
-						printf("SERVER: ricevuto un segnale di terminazione dalla pipe.\n");
-						quit = 1;
+						int code;
+						read(sigPipe[0], &code, sizeof(int));
+
+						if (code == 0) {
+							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
+							stopIncomingConnections = 1;
+						}
+
+						else if (code == 1) {
+							printf("Ricevuto un segnale di terminazione immediata.\n");
+							quit = 1;
+						}
+
+						else {
+							perror("Errore: codice inviato dal sigThread invalido.\n");
+						}
+						
 						break;
 					}
 
@@ -206,11 +288,6 @@ int main(int argc, char *argv[]) {
 					else {
 						FD_CLR(fd, &set);
 						fd_max = update(set, fd_max);
-						/*
-						if (fd > fd_max) {
-							fd_max = fd;
-						}
-						*/
 
 						long* args = malloc(3*sizeof(long));
 						args[0] = fd;
@@ -220,7 +297,7 @@ int main(int argc, char *argv[]) {
 
 						// task aggiunto alla pool con successo
 						if (r == 0) {
-							printf("SERVER: task aggiunto alla pool.\n");
+							printf("Task aggiunto alla pool.\n");
 							continue;
 						}
 
@@ -235,6 +312,7 @@ int main(int argc, char *argv[]) {
 						}
 
 						close(fd);
+
 						continue;
 					}
 				}	
@@ -250,7 +328,7 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	unlink(SOCKNAME);
+	unlink(sockName);
 
 	return 0;
 }
@@ -312,7 +390,10 @@ static void serverThread(void *par) {
 	if (n == 0 || strcmp(buf, "quit\n") == 0) {
 		printf("SERVER THREAD: chiudo la connessione col client\n");
 		close(fd_c);
-		//break;
+
+		int close = -1;
+		write(pipe, &close, sizeof(int));	// comunico al manager che la richiesta è stata servita
+
 		return;
 	}
 
@@ -346,20 +427,36 @@ static void* sigThread(void *par) {
 	sigemptyset(&set);
 	sigaddset(&set, SIGINT);
 	sigaddset(&set, SIGQUIT);
+	sigaddset(&set, SIGHUP);
 
-	int sig;
+	while (1) {
+		int sig;
+		int code;
+		pthread_sigmask(SIG_SETMASK, &set, NULL);
 
-	pthread_sigmask(SIG_SETMASK, &set, NULL);
+		if (sigwait(&set, &sig) != 0) {
+			perror("sigwait.\n");
+			return (void*) 1;
+		}
 
-	if (sigwait(&set, &sig) != 0) {
-		perror("sigwait.\n");
-		return (void*) 1;
+		printf("Ho ricevuto segnale %d\n", sig);
+
+		switch (sig) {
+			case SIGHUP:
+				code = 0;
+				// notifico il thread manager di smettere di accettare nuove connessioni in entrata
+				write(fd_pipe, &code, sizeof(int));	
+				break;
+			case SIGINT:
+			case SIGQUIT:
+				code = 1;
+				// notifico il thread manager di terminare il server il prima possibile
+				write(fd_pipe, &code, sizeof(int));	
+				return NULL;
+			default:
+				break;
+		}
 	}
-
-	printf("Ho ricevuto segnale %d\n", sig);
-	close(fd_pipe);	// notifico il thread manager della ricezione del segnale
-
-	return (void*) 0;
 }
 
 int update(fd_set set, int fdmax) {

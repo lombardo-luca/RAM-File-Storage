@@ -1,0 +1,2 @@
+threadpoolSize:4
+sockName:mysock
