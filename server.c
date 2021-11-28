@@ -15,6 +15,7 @@
 
 #include <threadpool.h>
 #include <fileQueue.h>
+#include <partialIO.h>
 
 #define UNIX_PATH_MAX 108 
 #define BUFSIZE 256
@@ -30,8 +31,8 @@ int main(int argc, char *argv[]) {
 	struct sigaction siga;
 	char sockName[256] = "./mysock";		// nome del socket
 	int threadpoolSize = 1;					// numero di thread workers nella threadPool
-	int maxFiles = 1;						// massimo numero di file supportati
-	unsigned long maxSize = 1;				// massima dimensione supportata (in bytes)
+	size_t maxFiles = 1;					// massimo numero di file supportati
+	size_t maxSize = 1;						// massima dimensione supportata (in bytes)
 	int sigPipe[2], requestPipe[2];
 	FILE *configFile;						// file di configurazione per il server
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
@@ -164,18 +165,18 @@ int main(int argc, char *argv[]) {
 		}
 
 		else if (strcmp("maxFiles", option) == 0) {
-			maxFiles = (int) strtol(value, NULL, 0);
+			maxFiles = (size_t) strtol(value, NULL, 0);
 
 			if (maxFiles <= 0) {
 				printf("Errore di configurazione: il numero massimo di file dev'essere maggiore o uguale a 1.\n");
 				return 1;
 			}
 
-			printf("CONFIG: Numero massimo di file supportati = %d\n", maxFiles);
+			printf("CONFIG: Numero massimo di file supportati = %ld\n", maxFiles);
 		}
 
 		else if (strcmp("maxSize", option) == 0) {
-			maxSize = (unsigned long) (strtol(value, NULL, 0) * 1000000);
+			maxSize = (size_t) (strtol(value, NULL, 0) * 1000000);
 
 			if (maxSize <= 0) {
 				printf("Errore di configurazione: la dimensione massima dev'essere maggiore o uguale a 1.\n");
@@ -310,7 +311,7 @@ int main(int argc, char *argv[]) {
 					else if (fd == requestPipe[0]) {
 						// leggo il descrittore dalla pipe
 						int fdr;
-						read(requestPipe[0], &fdr, sizeof(int));
+						readn(requestPipe[0], &fdr, sizeof(int));
 
 						// se il worker thread ha chiuso la connessione...
 						if (fdr == -1) {
@@ -339,7 +340,7 @@ int main(int argc, char *argv[]) {
 					o solo smettere di accettare nuove connessioni */
 					else if (fd == sigPipe[0]) {
 						int code;
-						read(sigPipe[0], &code, sizeof(int));
+						readn(sigPipe[0], &code, sizeof(int));
 
 						if (code == 0) {
 							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
@@ -466,7 +467,7 @@ static void serverThread(void *par) {
 		close(fd_c);
 
 		int close = -1;
-		write(pipe, &close, sizeof(int));	// comunico al manager che la richiesta è stata servita
+		writen(pipe, &close, sizeof(int));	// comunico al manager che la richiesta è stata servita
 
 		return;
 	}
@@ -484,13 +485,14 @@ static void serverThread(void *par) {
 		i++;
 	}
 
-	write(fd_c, str, strlen(str));
+	//write(fd_c, str, strlen(str));
+	writen(fd_c, str, BUFSIZE);
 	printf("SERVER THREAD: ho mandato %s\n\n", str);
 	fflush(stdout);
 
 	memset(buf, '\0', BUFSIZE);
 
-	write(pipe, &fd_c, sizeof(int));		// comunico al manager che la richiesta è stata servita
+	writen(pipe, &fd_c, sizeof(int));	// comunico al manager che la richiesta è stata servita
 }
 
 static void* sigThread(void *par) {
@@ -519,13 +521,13 @@ static void* sigThread(void *par) {
 			case SIGHUP:
 				code = 0;
 				// notifico il thread manager di smettere di accettare nuove connessioni in entrata
-				write(fd_pipe, &code, sizeof(int));	
+				writen(fd_pipe, &code, sizeof(int));	
 				break;
 			case SIGINT:
 			case SIGQUIT:
 				code = 1;
 				// notifico il thread manager di terminare il server il prima possibile
-				write(fd_pipe, &code, sizeof(int));	
+				writen(fd_pipe, &code, sizeof(int));	
 				return NULL;
 			default:
 				break;

@@ -182,6 +182,36 @@ int writeQueue(queueT *queue, fileT* data) {
     return 0;
 }
 
+size_t getLen(queueT *queue) {
+    if (!queue) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    size_t len = queue->len;
+
+    pthread_mutex_unlock(&queue->m);
+
+    return len;
+}
+
+size_t getSize(queueT *queue) {
+    if (!queue) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    size_t size = queue->size;
+
+    pthread_mutex_unlock(&queue->m);
+
+    return size;
+}
+
 void destroyQueue(queueT *queue) {
     if (queue) {
          // se la coda non è vuota, libera la memoria per ogni elemento

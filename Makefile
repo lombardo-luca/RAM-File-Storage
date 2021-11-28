@@ -1,8 +1,8 @@
 CC			=  gcc
 AR          =  ar
-CFLAGS	    += -Wall -pedantic -g
+CFLAGS	    += -Wall -Wno-pointer-arith -pedantic -g
 ARFLAGS     =  rvs
-INCDIR      = ./includes -I ./threadpool -I ./fileQueue
+INCDIR      = ./includes -I ./threadpool -I ./fileQueue -I ./partialIO
 INCLUDES	= -I. -I $(INCDIR)
 LDFLAGS 	= -L.
 OPTFLAGS	= #-O3 
@@ -19,7 +19,10 @@ TARGETS		= server client
 
 all		: $(TARGETS)
 
-server: server.o libPool.a libQueue.a
+server: server.o libPool.a libQueue.a libIO.a
+	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+client: client.o libIO.a
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 libPool.a: ./includes/threadpool.o ./includes/threadpool.h
@@ -28,16 +31,18 @@ libPool.a: ./includes/threadpool.o ./includes/threadpool.h
 libQueue.a: ./includes/fileQueue.o ./includes/fileQueue.h
 	$(AR) $(ARFLAGS) $@ $<
 
-server.o: server.c
+libIO.a: ./includes/partialIO.o ./includes/partialIO.h
+	$(AR) $(ARFLAGS) $@ $<
 
-client: client.o
-	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+server.o: server.c
 
 client.o: client.c
 
 ./includes/threadpool.o: ./includes/threadpool.c
 
 ./includes/fileQueue.o: ./includes/fileQueue.c
+
+./includes/partialIO.o: ./includes/partialIO.c
 
 clean		: 
 	rm -f $(TARGETS)

@@ -1,12 +1,12 @@
 // struttura dati per gestire i file in memoria
 typedef struct {
     FILE* file;
-    char* filepath;
-    int O_LOCK;
+    char* filepath;     // path assoluto del file
+    int O_LOCK;         // flag
     pthread_mutex_t m;
 } fileT;
 
-// coda di fileT
+// coda FIFO di fileT
 typedef struct {
     size_t head;
     size_t tail;
@@ -22,7 +22,7 @@ typedef struct {
 
 /* Alloca ed inizializza un fileT.
  * \param file -> puntatore al file da contenere
- * \param filepath -> stringa che identifica il path del file
+ * \param filepath -> stringa che identifica il path assoluto del file
  * \param O_LOCK -> flag 
  */
 fileT* createFile(FILE *file, char *filepath, int O_LOCK);
@@ -57,11 +57,23 @@ fileT* readQueue(queueT *queue);
  */
 int writeQueue(queueT *queue, fileT* data);
 
+/* Restituisce la lunghezza attuale della coda (ovvero il numero di elementi presenti).
+ * \param queue -> puntatore alla coda
+ * \retval -> numero di elementi presenti, -1 se errore (setta errno)
+*/
+size_t getLen(queueT *queue);
+
+/* Restituisce la dimensione attuale della coda (ovvero la somma delle dimensioni dei file presenti).
+ * \param queue -> puntatore alla coda
+ * \retval -> dimensione della coda in bytes, -1 se errore (setta errno)
+*/
+size_t getSize(queueT *queue);
+
 /* Cancella una coda allocata con createQueue. Dev'essere chiamata da un solo thread. 
  * Chiama al suo interno la destroyFile su ogni elemento della coda, chiudendo tutti i file in essa contenuti.
  * \param queue -> puntatore alla coda da distruggere
  */
-void destroyQueue(queueT *queue, int destroyData);
+void destroyQueue(queueT *queue);
 
 /* Come la destroyQueue, ma non chiama la destroyFile sugli elementi della coda, non chiudendo quindi i file in essa contenuti.
  * \param queue -> puntatore alla coda da cancellare

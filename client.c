@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <string.h>
 
+#include <partialIO.h>
+
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME "./mysock"
 #define CMDSIZE 256
@@ -37,7 +39,7 @@ int main(int argc, char* argv[]) {
 
 	memset(cmd, '\0', CMDSIZE);
 	while (fgets(cmd, sizeof(cmd), stdin)) {
-		write(fd_skt, cmd, strlen(cmd));
+		writen(fd_skt, cmd, strlen(cmd));
 
 		int cmp = 0;
 		cmp = strcmp(cmd, "quit\n");
@@ -48,7 +50,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		else {
-			read(fd_skt, buf, BUFSIZE);
+			readn(fd_skt, buf, BUFSIZE);
 			printf("Risultato: %s\n", buf);
 		}
 
