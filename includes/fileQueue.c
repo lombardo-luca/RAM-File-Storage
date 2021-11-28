@@ -182,15 +182,13 @@ int writeQueue(queueT *queue, fileT* data) {
     return 0;
 }
 
-void destroyQueue(queueT *queue, int destroyData) {
+void destroyQueue(queueT *queue) {
     if (queue) {
-        if (destroyData == 1) {
-            // se la coda non è vuota, libera la memoria per ogni elemento
-            while (queue->len > 0) {
-                fileT *data = NULL;
-                data = readQueue(queue);
-                destroyFile(data);
-            }
+         // se la coda non è vuota, libera la memoria per ogni elemento
+        while (queue->len > 0) {
+             fileT *data = NULL;
+            data = readQueue(queue);
+            destroyFile(data);
         }
 
         cleanupQueue(queue);
