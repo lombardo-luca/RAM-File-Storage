@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 
 #include <threadpool.h>
+#include <fileQueue.h>
 
 #define UNIX_PATH_MAX 108 
 #define BUFSIZE 256
@@ -69,6 +70,40 @@ int main(int argc, char *argv[]) {
 	// stampo messaggio d'introduzione
 	printf("File Storage Server avviato.\n");
 	fflush(stdout);
+
+	/*
+	printf("TEST QUEUE\n");
+
+	queueT *q = createQueue(5, 100);
+
+	for (int i = 0; i < 10; i++) {
+		printf("Entro nel primo for...\n");
+
+		FILE *file;
+		fileT *f = createFile(file, i);
+
+		if (f == NULL) {
+			perror("createFile");
+		}
+
+		else if (writeQueue(q, f) != 0) {
+			perror("writeQueue");
+		}
+	}
+
+	for (int j = 0; j < 10; j++) {
+		fileT *f2 = readQueue(q);
+		if (f2 == NULL) {
+			perror("readQueue");
+		}
+
+		else {
+			printf("ho letto il file %d con flag %d\n", j, f2->O_LOCK);
+		}
+	}
+
+	return 0;
+	*/
 
 	// apro il file di configurazione in sola lettura
 	if ((configFile = fopen("config/config.txt", "r")) == NULL) {
