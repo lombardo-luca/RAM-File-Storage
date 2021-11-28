@@ -31,11 +31,12 @@ int main(int argc, char *argv[]) {
 	char sockName[256] = "./mysock";		// nome del socket
 	int threadpoolSize = 1;					// numero di thread workers nella threadPool
 	int maxFiles = 1;						// massimo numero di file supportati
+	unsigned long maxSize = 1;				// massima dimensione supportata (in bytes)
 	int sigPipe[2], requestPipe[2];
 	FILE *configFile;						// file di configurazione per il server
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
-	sig_atomic_t numberOfConnections = 0;	// numero dei client attualmente connessi
-	int stopIncomingConnections = 0;		// se = 1, non accetta più nuove connessioni dai client
+	sig_atomic_t numberOfConnections = 0;		// numero dei client attualmente connessi
+	sig_atomic_t stopIncomingConnections = 0;	// se = 1, non accetta più nuove connessioni dai client
 
 	// maschero tutti i segnali 
 	if (sigfillset(&sigset) == -1) {
@@ -76,33 +77,48 @@ int main(int argc, char *argv[]) {
 
 	queueT *q = createQueue(5, 100);
 
-	for (int i = 0; i < 10; i++) {
-		printf("Entro nel primo for...\n");
-
-		FILE *file;
-		fileT *f = createFile(file, i);
-
-		if (f == NULL) {
-			perror("createFile");
-		}
-
-		else if (writeQueue(q, f) != 0) {
-			perror("writeQueue");
-		}
+	FILE *file1 = fopen("test/file1.txt", "r");
+	FILE *file2 = fopen("test/file2.txt", "r");
+	fileT *f1;
+	fileT *f2;
+	 
+	if ((f1 = createFile(file1, "test/file1.txt", 0)) == NULL) {
+		perror("createFile f1");
+		return 1;
 	}
 
-	for (int j = 0; j < 10; j++) {
-		fileT *f2 = readQueue(q);
-		if (f2 == NULL) {
+	if ((f2 = createFile(file2, "test/file2.txt", 0)) == NULL) {
+		perror("createFile f2");
+		return 1;
+	}
+
+	if (writeQueue(q, f1) != 0) {
+		perror("writeQueue f1");
+		return 1;
+	}
+
+	if (writeQueue(q, f2) != 0) {
+		perror("writeQueue f2");
+		return 1;
+	}
+
+	for (int j = 0; j < 1; j++) {
+		fileT *f3 = readQueue(q);
+		if (f3 == NULL) {
 			perror("readQueue");
+			return 1;
 		}
 
 		else {
-			printf("ho letto il file %d con flag %d\n", j, f2->O_LOCK);
+			printf("ho letto il file %s\n", f3->filepath);
 		}
 	}
 
-	return 0;
+	destroyFile(f1);
+	destroyQueue(q, 1);
+
+	printf("FINE TEST QUEUE\n");
+	//return 0;
 	*/
 
 	// apro il file di configurazione in sola lettura
@@ -148,16 +164,26 @@ int main(int argc, char *argv[]) {
 		}
 
 		else if (strcmp("maxFiles", option) == 0) {
-			maxFiles = strtol(value, NULL, 0);
+			maxFiles = (int) strtol(value, NULL, 0);
 
 			if (maxFiles <= 0) {
-				printf("Errore di configurazione: il numero massiomo di file dev'essere maggiore o uguale a 1.\n");
+				printf("Errore di configurazione: il numero massimo di file dev'essere maggiore o uguale a 1.\n");
 				return 1;
 			}
 
 			printf("CONFIG: Numero massimo di file supportati = %d\n", maxFiles);
 		}
 
+		else if (strcmp("maxSize", option) == 0) {
+			maxSize = (unsigned long) (strtol(value, NULL, 0) * 1000000);
+
+			if (maxSize <= 0) {
+				printf("Errore di configurazione: la dimensione massima dev'essere maggiore o uguale a 1.\n");
+				return 1;
+			}
+
+			printf("CONFIG: Dimensione massima supportata = %lu MB (%lu bytes)\n", maxSize/1000000, maxSize);
+		}
 
 		else {
 			printf("Errore di configuraizone: opzione non riconosciuta.\n");

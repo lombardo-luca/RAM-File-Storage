@@ -1,3 +1,4 @@
 threadpoolSize:4
 sockName:mysock
 maxFiles:100
+maxSize:50
