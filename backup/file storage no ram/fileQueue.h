@@ -1,11 +1,10 @@
 // struttura dati per gestire i file in memoria
 typedef struct {
+    FILE* file;
     char* filepath;     // path assoluto del file
     int O_LOCK;         // flag per la modalità locked
     int owner;          // file descriptor del client che ha richiesto l'operazione di lock sul file
-    void *content;      // contenuto del file. (size == -1) => (content == NULL)
-    size_t size;        // dimensione del file in bytes
-    pthread_mutex_t m; 
+    pthread_mutex_t m;
 } fileT;
 
 // coda FIFO di fileT
@@ -16,32 +15,29 @@ typedef struct {
     size_t len;         // numero attuale di elementi nella coda (<= maxLen)
     size_t maxSize;     // dimensione massima degli elementi nella coda
     size_t size;        // somma delle dimensioni degli elementi presenti in coda (<= maxSize)
-    fileT** data;       
+    fileT** data;       // puntatore a un elemento fileT
     pthread_mutex_t m;
     pthread_cond_t full;
     pthread_cond_t empty;
 } queueT;
 
 /* Alloca ed inizializza un fileT.
+ * \param file -> puntatore al file da contenere
  * \param filepath -> stringa che identifica il path assoluto del file
  * \param O_LOCK -> se 1, crea il file modalità locked
  * \param owner -> file descriptor del client che ha richiesto la modalità locked
- * \retval -> puntatore al fileT creato, NULL se errore (setta errno)
  */
-fileT* createFile(char *filepath, int O_LOCK, int owner);
+fileT* createFile(FILE *file, char *filepath, int O_LOCK, int owner);
 
-/* Scrive del contenuto su un fileT creato con createFile.
- * \param f -> fileT sul quale scrivere
- * \param content -> contenuto da scrivere
- * \size -> dimensione in bytes del contenuto da scrivere
- * \retval -> 1 se successo, 0 se errore (setta errno)
- */
-int writeFile(fileT *f, void *content, size_t size) ;
-
-/* Cancella un fileT creato con createFile
- * \param f -> file da cancellare
+/* Cancella un fileT creato con createFile. Chiude (tramte fclose) il file in esso contenuto.
+ * \param f -> file da distruggere
 */
 void destroyFile(fileT *f);
+
+/* Come la destroyFile, ma non chiude il file in esso contenuto.
+ * \param f -> file da cancellare
+*/
+void cleanupFile(fileT *f);
 
 /* Alloca ed inizializza una coda. Dev'essere chiamata da un solo thread.
  * \param maxLen -> massima lunghezza della coda (numero di file)
@@ -50,25 +46,18 @@ void destroyFile(fileT *f);
  */
 queueT* createQueue(size_t maxLen, size_t maxSize);
 
-/* Estrae un file dalla coda.
+/* Estrae un dato dalla coda.
  * \param queue -> puntatore alla coda dalla quale leggere
- * \retval -> puntatore al file estratto, NULL se errore
+ * \retval -> puntatore al dato estratto, NULL se errore
  */
-fileT* pop(queueT *queue);
+fileT* readQueue(queueT *queue);
 
-/* Inserisce un file nella coda. 
+/* Inserisce un elemento nella coda. 
  * \param queue -> puntatore alla coda sulla quale scrivere
  * \param data -> puntatore all'elemento da inserire
  * \retval -> 0 se successo, -1 se errore (setta errno)  
  */
-int push(queueT *queue, fileT* data);
-
-/* Cerca un elemento nella coda.
- * \param queue -> puntatore alla coda sulla quale cercare il file
- * \param filepath -> path assoluto (identificatore) del file da cercare 
- * \retval -> puntatore al file trovato, NULL se non trovato o errore (setta errno)
- */
-fileT* find(queueT *queue, char *filepath);
+int writeQueue(queueT *queue, fileT* data);
 
 /* Restituisce la lunghezza attuale della coda (ovvero il numero di elementi presenti).
  * \param queue -> puntatore alla coda
@@ -83,12 +72,12 @@ size_t getLen(queueT *queue);
 size_t getSize(queueT *queue);
 
 /* Cancella una coda allocata con createQueue. Dev'essere chiamata da un solo thread. 
- * Chiama al suo interno la destroyFile su ogni elemento della coda.
+ * Chiama al suo interno la destroyFile su ogni elemento della coda, chiudendo tutti i file in essa contenuti.
  * \param queue -> puntatore alla coda da distruggere
  */
 void destroyQueue(queueT *queue);
 
-/* Come la destroyQueue, ma non chiama la destroyFile sugli elementi della coda.
+/* Come la destroyQueue, ma non chiama la destroyFile sugli elementi della coda, non chiudendo quindi i file in essa contenuti.
  * \param queue -> puntatore alla coda da cancellare
 */
 void cleanupQueue(queueT *queue);

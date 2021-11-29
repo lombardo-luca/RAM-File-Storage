@@ -82,82 +82,45 @@ int main(int argc, char *argv[]) {
 
 	queueT *q = createQueue(5, 100);
 
-	void *buf1 = malloc(256);
-	void *buf2 = malloc(256);
-	fileT *f1, *f2;
-	char str1[256] = "contenutofile1";
-	char str2[5] = "test";
-	memcpy(buf1, str1, 15);
-	memcpy(buf2, str2, 5);
+	FILE *file1 = fopen("test/file1.txt", "r");
+	FILE *file2 = fopen("test/file2.txt", "r");
+	fileT *f1;
+	fileT *f2;
 	 
-	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
+	if ((f1 = createFile(file1, "test/file1.txt", 0)) == NULL) {
 		perror("createFile f1");
 		return 1;
 	}
 
-	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
+	if ((f2 = createFile(file2, "test/file2.txt", 0)) == NULL) {
 		perror("createFile f2");
 		return 1;
 	}
 
-	if (writeFile(f1, buf1, 15) == -1) {
-		perror("writeFile f1");
-		return 1;
-	}	
-
-	if (writeFile(f2, buf2, 5) == -1) {
-		perror("writeFile f2");
-		return 1;
-	}	
-
-	if (push(q, f1) != 0) {
-		perror("push f1");
+	if (writeQueue(q, f1) != 0) {
+		perror("writeQueue f1");
 		return 1;
 	}
 
-	if (push(q, f2) != 0) {
-		perror("push f2");
+	if (writeQueue(q, f2) != 0) {
+		perror("writeQueue f2");
 		return 1;
 	}
 
-	fileT *ff1;
-
-	if ((ff1 = find(q, "test/file1.txt")) == NULL) {
-		printf("file non trovato\n");
-	}
-
-	else {
-		printf("file trovato\n");
-	}
-
-	fileT *f3 = pop(q);
 	for (int j = 0; j < 1; j++) {
+		fileT *f3 = readQueue(q);
 		if (f3 == NULL) {
-			perror("pop");
+			perror("readQueue");
 			return 1;
 		}
 
 		else {
-			printf("ho rimosso il file %s\n", f3->filepath);
+			printf("ho letto il file %s\n", f3->filepath);
 		}
 	}
 
-	fileT *ff2;
-
-	if ((ff2 = find(q, "test/file1.txt")) == NULL) {
-		printf("file non trovato\n");
-	}
-
-	else {
-		printf("file trovato\n");
-	}
-
-	free(buf1);
-	free(buf2);
-	destroyFile(f3);
-	destroyFile(ff1);
-	destroyFile(ff2);
-	destroyQueue(q);
+	destroyFile(f1);
+	destroyQueue(q, 1);
 
 	printf("FINE TEST QUEUE\n");
 	//return 0;
@@ -299,54 +262,30 @@ int main(int argc, char *argv[]) {
 
 	/*
 	printf("TEST\n");
-	fileT *f1, *f2;
-	void *buf1 = malloc(256);
-	void *buf2 = malloc(256);
-	char str[256] = "test";
-	memcpy(buf1, "contenutofile1", 15);
-	memcpy(buf2, str, sizeof(str));
+	FILE *file1 = fopen("test/file1.txt", "r");
+	FILE *file2 = fopen("test/file2.txt", "r");
+	fileT *f1;
+	fileT *f2;
 	 
-	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
+	if ((f1 = createFile(file1, "test/file1.txt", 0, 0)) == NULL) {
 		perror("createFile f1");
 		return 1;
 	}
 
-	if (writeFile(f1, buf1, 15) == -1) {
-		perror("writeFile f1");
-		return 1;
-	}
-
-	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
+	if ((f2 = createFile(file2, "test/file2.txt", 0, 0)) == NULL) {
 		perror("createFile f2");
 		return 1;
 	}
 
-	if (writeFile(f2, buf2, 5) == -1) {
-		perror("writeFile f1");
-		return 1;
-	}	
-
-	if (push(queue, f1) != 0) {
-		perror("push f1");
+	if (writeQueue(queue, f1) != 0) {
+		perror("writeQueue f1");
 		return 1;
 	}
 
-	if (push(queue, f2) != 0) {
-		perror("push f2");
+	if (writeQueue(queue, f2) != 0) {
+		perror("writeQueue f2");
 		return 1;
 	}
-
-	free(buf1);
-	free(buf2);
-
-	fileT *f3;
-	if ((f3 = pop(queue)) == NULL) {
-		perror("pop f3");
-		return 1;
-	}
-
-	printf("f3 contenuto: %s\n", (char*) f3->content);
-	destroyFile(f3);
 	printf("FINE TEST\n");
 	*/
 

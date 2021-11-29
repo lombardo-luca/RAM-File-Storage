@@ -9,13 +9,8 @@
 
 #include <fileQueue.h>
 
-fileT* createFile(char *filepath, int O_LOCK, int owner) {
+fileT* createFile(FILE *file, char *filepath, int O_LOCK, int owner) {
     fileT *f;
-
-    if (!filepath || O_LOCK < 0) {
-        errno = EINVAL;
-        return (fileT*) NULL;
-    }
 
     // alloco la memoria
     if ((f = (fileT*) calloc(1, sizeof(fileT))) == NULL) {
@@ -23,13 +18,19 @@ fileT* createFile(char *filepath, int O_LOCK, int owner) {
         return (fileT*) NULL;
     }
 
+    if (O_LOCK < 0) {
+        perror("Flag O_LOCK invalido");
+        cleanupFile(f);
+        return (fileT*) NULL;
+    }
+
+    f->file = file;
     f->O_LOCK = O_LOCK;
     f->owner = owner;
-    f->size = -1;
 
     if ((f->filepath = malloc(sizeof(char)*256)) == NULL) {
         perror("Malloc filepath");
-        destroyFile(f);
+        cleanupFile(f);
         return (fileT*) NULL;
     }
 
@@ -37,41 +38,25 @@ fileT* createFile(char *filepath, int O_LOCK, int owner) {
 
     if (pthread_mutex_init(&f->m, NULL) != 0) {
         perror("pthread_mutex_init m");
-        destroyFile(f);
+        cleanupFile(f);
         return (fileT*) NULL;
     }
 
     return f;
 }
 
-int writeFile(fileT *f, void *content, size_t size) {
-    if (!f || !content || size < 0) {
-        errno = EINVAL;
-        return -1;
+void destroyFile(fileT *f) {
+    if (f->file) {
+        fclose(f->file);
     }
 
-    if ((f->content = malloc(size)) == NULL) {
-        perror("Malloc content");
-        return -1;
-    }
-
-    memcpy(f->content, content, size);
-
-    printf("writeFile: ho scritto il file con contenuto: %s, di dimensione %ld\n", (char*) f->content, size);
-
-    f->size = size;
-
-    return 0;
+    cleanupFile(f);
 }
 
-void destroyFile(fileT *f) {
+void cleanupFile(fileT *f) {
     if (f) {
         if (f->filepath) {
             free(f->filepath);
-        }
-
-        if (f->content) {
-            free(f->content);
         }
 
         if (&f->m) {
@@ -125,8 +110,7 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
     return queue;
 }
 
-// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
-fileT* pop(queueT *queue) {
+fileT* readQueue(queueT *queue) {
     if (!queue) {
         errno = EINVAL;
         return NULL;
@@ -143,9 +127,15 @@ fileT* pop(queueT *queue) {
     queue->head += (queue->head + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
     queue->len--;
 
-    printf("pop: la dimensione del file rimosso e' %ld\n", data->size);
+    // controllo la dimensione del file rimosso dalla coda
+    struct stat sb;
+    if (stat(data->filepath, &sb) == -1) {
+        perror("stat");
+        errno = EINVAL;
+        return NULL;
+    }
 
-    queue->size -= data->size;
+    queue->size -= sb.st_size;
 
     assert(queue->len >= 0);
 
@@ -154,7 +144,7 @@ fileT* pop(queueT *queue) {
     return data;
 }
 
-int push(queueT *queue, fileT* data) {
+int writeQueue(queueT *queue, fileT* data) {
     if (!queue || !data) {
         errno = EINVAL;
         return -1;
@@ -167,10 +157,16 @@ int push(queueT *queue, fileT* data) {
         pthread_cond_wait(&queue->full, &queue->m);
     }
 
-    printf("push: la dimensione del file aggiunto e' %ld\n", data->size);
+    // controllo la dimensione del file per vedere se c'è abbastanza spazio nella coda
+    struct stat sb;
+    if (stat(data->filepath, &sb) == -1) {
+        perror("stat");
+        errno = EINVAL;
+        return -1;
+    }
 
     // se non c'è abbastanza spazio, errore
-    if (queue->size + data->size > queue->maxSize) {
+    if (queue->size + sb.st_size >= queue->maxSize) {
         errno = EFBIG;
         return -1;
     }
@@ -180,56 +176,11 @@ int push(queueT *queue, fileT* data) {
     queue->data[queue->tail] = data;
     queue->tail += (queue->tail + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
     queue->len++;
-    queue->size += data->size;
+    queue->size += sb.st_size;
 
     pthread_cond_signal(&queue->empty);  // segnalo che la coda non è vuota
     pthread_mutex_unlock(&queue->m);
     return 0;
-}
-
-// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
-fileT* find(queueT *queue, char *filepath) {
-    if (!queue || !filepath) {
-        errno = EINVAL;
-        return NULL;
-    }
-
-    pthread_mutex_lock(&queue->m);
-
-    if (queue->len == 0) {
-        return NULL;
-    }
-
-    fileT *res = NULL;
-    int cnt = 1, found = 0;
-    size_t temp = queue->head;
-    //printf("cerco: %s!\n", filepath);
-    //printf("el: %s!\n", (queue->data[temp])->filepath);
-
-    // scorro tutta la coda
-    while (cnt < queue->len && !found) {
-        // se trovo l'elemento cercato...
-        if (strcmp(filepath, (queue->data[temp])->filepath) == 0) {
-            //printf("find: trovato!\n");
-            found = 1;
-
-            // ...creane una copia e restituiscila
-            res = createFile((queue->data[temp])->filepath, (queue->data[temp])->O_LOCK, (queue->data[temp])->owner);
-            if (writeFile(res, (queue->data[temp])->content, (queue->data[temp])->size) == -1) {
-                perror("writeFile res");
-                return NULL;
-            }
-        }
-
-        temp += (temp + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
-        //printf("el: %s!\n", (queue->data[temp])->filepath);
-
-        cnt++;
-    }
-
-    pthread_mutex_unlock(&queue->m);
-
-    return res;
 }
 
 size_t getLen(queueT *queue) {
@@ -267,7 +218,7 @@ void destroyQueue(queueT *queue) {
          // se la coda non è vuota, libera la memoria per ogni elemento
         while (queue->len > 0) {
              fileT *data = NULL;
-            data = pop(queue);
+            data = readQueue(queue);
             destroyFile(data);
         }
 
