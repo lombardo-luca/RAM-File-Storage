@@ -3,7 +3,7 @@ typedef struct {
     char* filepath;     // path assoluto del file
     int O_LOCK;         // flag per la modalità locked
     int owner;          // file descriptor del client che ha richiesto l'operazione di lock sul file
-    void *content;      // contenuto del file. (size == -1) => (content == NULL)
+    void *content;      // contenuto del file
     size_t size;        // dimensione del file in bytes
     pthread_mutex_t m; 
 } fileT;
@@ -22,15 +22,17 @@ typedef struct {
     pthread_cond_t empty;
 } queueT;
 
-/* Alloca ed inizializza un fileT.
- * \param filepath -> stringa che identifica il path assoluto del file
- * \param O_LOCK -> se 1, crea il file modalità locked
+/**
+ * Alloca ed inizializza un fileT.
+ * \param filepath -> stringa che identifica il path assoluto del fileT
+ * \param O_LOCK -> se 1, crea il fileT modalità locked
  * \param owner -> file descriptor del client che ha richiesto la modalità locked
  * \retval -> puntatore al fileT creato, NULL se errore (setta errno)
  */
 fileT* createFile(char *filepath, int O_LOCK, int owner);
 
-/* Scrive del contenuto su un fileT creato con createFile.
+/**
+ * Scrive del contenuto su un fileT creato con createFile.
  * \param f -> fileT sul quale scrivere
  * \param content -> contenuto da scrivere
  * \size -> dimensione in bytes del contenuto da scrivere
@@ -38,57 +40,66 @@ fileT* createFile(char *filepath, int O_LOCK, int owner);
  */
 int writeFile(fileT *f, void *content, size_t size) ;
 
-/* Cancella un fileT creato con createFile
- * \param f -> file da cancellare
+/**
+ * Cancella un fileT creato con createFile e ne libera la memoria.
+ * \param f -> fileT da cancellare
 */
 void destroyFile(fileT *f);
 
-/* Alloca ed inizializza una coda. Dev'essere chiamata da un solo thread.
+/**
+ * Alloca ed inizializza una coda. Dev'essere chiamata da un solo thread.
  * \param maxLen -> massima lunghezza della coda (numero di file)
  * \param maxSize -> dimensione massima della coda (in bytes)
  * \retval -> puntatore alla coda allocata, NULL se errore
  */
 queueT* createQueue(size_t maxLen, size_t maxSize);
 
-/* Estrae un file dalla coda.
+/**
+ * Estrae un fileT dalla coda.
  * \param queue -> puntatore alla coda dalla quale leggere
  * \retval -> puntatore al file estratto, NULL se errore
  */
 fileT* pop(queueT *queue);
 
-/* Inserisce un file nella coda. 
+/**
+ * Inserisce un fileT nella coda. 
  * \param queue -> puntatore alla coda sulla quale scrivere
- * \param data -> puntatore all'elemento da inserire
+ * \param data -> puntatore al fileT da inserire
  * \retval -> 0 se successo, -1 se errore (setta errno)  
  */
 int push(queueT *queue, fileT* data);
 
-/* Cerca un elemento nella coda.
- * \param queue -> puntatore alla coda sulla quale cercare il file
- * \param filepath -> path assoluto (identificatore) del file da cercare 
- * \retval -> puntatore al file trovato, NULL se non trovato o errore (setta errno)
+/**
+ * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore).
+ * \param queue -> puntatore alla coda sulla quale cercare il fileT
+ * \param filepath -> path assoluto del fileT da cercare 
+ * \retval -> puntatore al fileT trovato, NULL se non trovato o errore (setta errno)
  */
 fileT* find(queueT *queue, char *filepath);
 
-/* Restituisce la lunghezza attuale della coda (ovvero il numero di elementi presenti).
+/**
+ * Restituisce la lunghezza attuale della coda (ovvero il numero di elementi presenti).
  * \param queue -> puntatore alla coda
  * \retval -> numero di elementi presenti, -1 se errore (setta errno)
 */
 size_t getLen(queueT *queue);
 
-/* Restituisce la dimensione attuale della coda (ovvero la somma delle dimensioni dei file presenti).
+/**
+ * Restituisce la dimensione attuale della coda (ovvero la somma delle dimensioni dei fileT presenti).
  * \param queue -> puntatore alla coda
  * \retval -> dimensione della coda in bytes, -1 se errore (setta errno)
 */
 size_t getSize(queueT *queue);
 
-/* Cancella una coda allocata con createQueue. Dev'essere chiamata da un solo thread. 
+/**
+ * Cancella una coda allocata con createQueue. Dev'essere chiamata da un solo thread. 
  * Chiama al suo interno la destroyFile su ogni elemento della coda.
  * \param queue -> puntatore alla coda da distruggere
  */
 void destroyQueue(queueT *queue);
 
-/* Come la destroyQueue, ma non chiama la destroyFile sugli elementi della coda.
+/**
+ * Come la destroyQueue, ma non chiama la destroyFile sugli elementi della coda.
  * \param queue -> puntatore alla coda da cancellare
 */
 void cleanupQueue(queueT *queue);

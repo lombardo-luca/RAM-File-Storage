@@ -25,7 +25,7 @@ fileT* createFile(char *filepath, int O_LOCK, int owner) {
 
     f->O_LOCK = O_LOCK;
     f->owner = owner;
-    f->size = -1;
+    f->size = 0;
 
     if ((f->filepath = malloc(sizeof(char)*256)) == NULL) {
         perror("Malloc filepath");
@@ -34,6 +34,11 @@ fileT* createFile(char *filepath, int O_LOCK, int owner) {
     }
 
     strncpy(f->filepath, filepath, 256);
+
+    if ((f->content = malloc(f->size+1)) == NULL) {
+        perror("Malloc content");
+        return (fileT*) NULL;
+    }
 
     if (pthread_mutex_init(&f->m, NULL) != 0) {
         perror("pthread_mutex_init m");
@@ -50,16 +55,28 @@ int writeFile(fileT *f, void *content, size_t size) {
         return -1;
     }
 
-    if ((f->content = malloc(size)) == NULL) {
+    pthread_mutex_lock(&f->m);
+
+    if ((f->content = realloc(f->content, f->size + size)) == NULL) {
         perror("Malloc content");
         return -1;
     }
 
-    memcpy(f->content, content, size);
+    // scrittura su un file vuoto
+    if (f->size == 0) {
+        memcpy(f->content, content, size);
+         f->size += (size);
+    }
 
-    printf("writeFile: ho scritto il file con contenuto: %s, di dimensione %ld\n", (char*) f->content, size);
+    // scrittura in append sul file
+    else {
+        memcpy(f->content+size-1, content, size);
+         f->size += (size-1);
+    }
 
-    f->size = size;
+    printf("writeFile: ho scritto il file %s, adesso ha contenuto: %s! di dimensione %ld\n", f->filepath, (char*) f->content, f->size);
+
+    pthread_mutex_unlock(&f->m);
 
     return 0;
 }
@@ -201,7 +218,7 @@ fileT* find(queueT *queue, char *filepath) {
     }
 
     fileT *res = NULL;
-    int cnt = 1, found = 0;
+    int cnt = 0, found = 0;
     size_t temp = queue->head;
     //printf("cerco: %s!\n", filepath);
     //printf("el: %s!\n", (queue->data[temp])->filepath);
@@ -222,7 +239,9 @@ fileT* find(queueT *queue, char *filepath) {
         }
 
         temp += (temp + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
-        //printf("el: %s!\n", (queue->data[temp])->filepath);
+        if (queue->data[temp]) {
+            //printf("el: %s!\n", (queue->data[temp])->filepath);
+        }
 
         cnt++;
     }

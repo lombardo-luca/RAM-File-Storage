@@ -20,11 +20,16 @@
 #define UNIX_PATH_MAX 108 
 #define BUFSIZE 256
 
+typedef struct struct_thread {
+	long *args;
+	queueT *queue;
+} threadT;
+
 static void serverThread(void *par);
 static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
-int parser(char *command);
-int openFile(char *pathname, int flags);
+int parser(char *command, queueT *queue);
+int openFile(char *pathname, int flags, queueT *queue);
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -76,92 +81,6 @@ int main(int argc, char *argv[]) {
 	// stampo messaggio d'introduzione
 	printf("File Storage Server avviato.\n");
 	fflush(stdout);
-
-	/*
-	printf("TEST QUEUE\n");
-
-	queueT *q = createQueue(5, 100);
-
-	void *buf1 = malloc(256);
-	void *buf2 = malloc(256);
-	fileT *f1, *f2;
-	char str1[256] = "contenutofile1";
-	char str2[5] = "test";
-	memcpy(buf1, str1, 15);
-	memcpy(buf2, str2, 5);
-	 
-	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
-		perror("createFile f1");
-		return 1;
-	}
-
-	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
-		perror("createFile f2");
-		return 1;
-	}
-
-	if (writeFile(f1, buf1, 15) == -1) {
-		perror("writeFile f1");
-		return 1;
-	}	
-
-	if (writeFile(f2, buf2, 5) == -1) {
-		perror("writeFile f2");
-		return 1;
-	}	
-
-	if (push(q, f1) != 0) {
-		perror("push f1");
-		return 1;
-	}
-
-	if (push(q, f2) != 0) {
-		perror("push f2");
-		return 1;
-	}
-
-	fileT *ff1;
-
-	if ((ff1 = find(q, "test/file1.txt")) == NULL) {
-		printf("file non trovato\n");
-	}
-
-	else {
-		printf("file trovato\n");
-	}
-
-	fileT *f3 = pop(q);
-	for (int j = 0; j < 1; j++) {
-		if (f3 == NULL) {
-			perror("pop");
-			return 1;
-		}
-
-		else {
-			printf("ho rimosso il file %s\n", f3->filepath);
-		}
-	}
-
-	fileT *ff2;
-
-	if ((ff2 = find(q, "test/file1.txt")) == NULL) {
-		printf("file non trovato\n");
-	}
-
-	else {
-		printf("file trovato\n");
-	}
-
-	free(buf1);
-	free(buf2);
-	destroyFile(f3);
-	destroyFile(ff1);
-	destroyFile(ff2);
-	destroyQueue(q);
-
-	printf("FINE TEST QUEUE\n");
-	//return 0;
-	*/
 
 	// apro il file di configurazione in sola lettura
 	if ((configFile = fopen("config/config.txt", "r")) == NULL) {
@@ -297,22 +216,17 @@ int main(int argc, char *argv[]) {
 	// creo la coda di file
 	queueT *queue = createQueue(maxFiles, maxSize);
 
-	/*
-	printf("TEST\n");
-	fileT *f1, *f2;
+	printf("TEST QUEUE\n");
 	void *buf1 = malloc(256);
 	void *buf2 = malloc(256);
-	char str[256] = "test";
-	memcpy(buf1, "contenutofile1", 15);
-	memcpy(buf2, str, sizeof(str));
+	fileT *f1, *f2;
+	char str1[256] = "contenutofile1";
+	char str2[5] = "test";
+	memcpy(buf1, str1, 15);
+	memcpy(buf2, str2, 5);
 	 
 	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
 		perror("createFile f1");
-		return 1;
-	}
-
-	if (writeFile(f1, buf1, 15) == -1) {
-		perror("writeFile f1");
 		return 1;
 	}
 
@@ -321,10 +235,20 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (writeFile(f2, buf2, 5) == -1) {
+	if (writeFile(f1, buf1, 15) == -1) {
 		perror("writeFile f1");
 		return 1;
 	}	
+
+	if (writeFile(f1, buf1, 15) == -1) {
+		perror("writeFile f1");
+		return 1;
+	}	
+
+	if (writeFile(f2, buf2, 5) == -1) {
+		perror("writeFile f2");
+		return 1;
+	}
 
 	if (push(queue, f1) != 0) {
 		perror("push f1");
@@ -336,19 +260,51 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	free(buf1);
-	free(buf2);
+	fileT *ff1;
 
-	fileT *f3;
-	if ((f3 = pop(queue)) == NULL) {
-		perror("pop f3");
-		return 1;
+	if ((ff1 = find(queue, "test/file1.txt")) == NULL) {
+		printf("file non trovato\n");
 	}
 
-	printf("f3 contenuto: %s\n", (char*) f3->content);
+	else {
+		printf("file trovato\n");
+	}
+
+	printf("TEST SCRITTURA SU FILE\n");
+    FILE* opf = fopen("testscrittura.txt", "w");
+    fwrite(ff1->content, 1, ff1->size, opf);
+    fclose(opf);
+    printf("FINE TEST SCRITTURA SU FILE\n");
+
+	fileT *f3 = pop(queue);
+	for (int j = 0; j < 1; j++) {
+		if (f3 == NULL) {
+			perror("pop");
+			return 1;
+		}
+
+		else {
+			printf("ho rimosso il file %s\n", f3->filepath);
+		}
+	}
+
+	fileT *ff2;
+
+	if ((ff2 = find(queue, "test/file1.txt")) == NULL) {
+		printf("file non trovato\n");
+	}
+
+	else {
+		printf("file trovato\n");
+	}
+
+	free(buf1);
+	free(buf2);
 	destroyFile(f3);
-	printf("FINE TEST\n");
-	*/
+	destroyFile(ff1);
+	destroyFile(ff2);
+	printf("FINE TEST QUEUE\n");
+	//return 0;
 
 	// creo la threadpool
 	threadpool_t *pool = NULL;
@@ -401,11 +357,22 @@ int main(int argc, char *argv[]) {
 
 							printf("Nuova connessione richiesta.\n");
 
+							// creo la struct da passare come argomento al thread worker
+							threadT *t = malloc(sizeof(threadT));
+							t->args = malloc(3*sizeof(long));
+							t->args[0] = fd_c;
+			    			t->args[1] = (long) &quit;
+			    			t->args[2] = (long) requestPipe[1];
+			    			t->queue = queue;
+							int r = addToThreadPool(pool, serverThread, (void*) t);
+
+							/*
 							long* args = malloc(3*sizeof(long));
 							args[0] = fd_c;
 			    			args[1] = (long) &quit;
 			    			args[2] = (long) requestPipe[1];
 							int r = addToThreadPool(pool, serverThread, (void*) args);
+							*/
 
 							// task aggiunto alla pool con successo
 							if (r == 0) {
@@ -493,11 +460,22 @@ int main(int argc, char *argv[]) {
 						FD_CLR(fd, &set);
 						fd_max = update(set, fd_max);
 
+						// creo la struct da passare come argomento al thread worker
+						threadT *t = malloc(sizeof(threadT));
+						t->args = malloc(3*sizeof(long));
+						t->args[0] = fd_c;
+			    		t->args[1] = (long) &quit;
+			    		t->args[2] = (long) requestPipe[1];
+			    		t->queue = queue;
+						int r = addToThreadPool(pool, serverThread, (void*) t);
+
+						/*
 						long* args = malloc(3*sizeof(long));
 						args[0] = fd;
 		    			args[1] = (long) &quit;
 		    			args[2] = (long) requestPipe[1];
 						int r = addToThreadPool(pool, serverThread, (void*) args);
+						*/
 
 						// task aggiunto alla pool con successo
 						if (r == 0) {
@@ -540,23 +518,27 @@ int main(int argc, char *argv[]) {
 
 static void serverThread(void *par) {
 	assert(par);
-	long *args = (long*) par;
+	threadT *t = (threadT*) par;
+	long *args = t->args;
 	long fd_c = args[0];
 	long *quit = (long*) (args[1]);
 	int pipe = (int) (args[2]);
-	free(par);
+	queueT *queue = t->queue;
 	sigset_t sigset;
 	fd_set set, tmpset;
+
+	// libera la memoria del threadT passato come parametro
+	free(par);
 	
 	// maschero tutti i segnali nel thread
 	if (sigfillset(&sigset) == -1) {
 		perror("sigfillset.\n");
-		exit(EXIT_FAILURE);
+		goto cleanup;
 	}
 
 	if (pthread_sigmask(SIG_SETMASK, &sigset, NULL) == -1) {
 		perror("sigmask.\n");
-		exit(EXIT_FAILURE);
+		goto cleanup;
 	}
 
 	FD_ZERO(&set);
@@ -569,13 +551,13 @@ static void serverThread(void *par) {
 
 		if ((r = select(fd_c + 1, &tmpset, NULL, NULL, &timeout)) < 0) {
 		    perror("select server thread");
-		    return;
+		    goto cleanup;
 		}
 
 		// se il timeout è terminato, controllo se devo uscire o riprovare
 		if (r == 0) {
 		    if (*quit) {
-		    	return;
+		    	goto cleanup;
 		    }
 		}
 
@@ -599,14 +581,14 @@ static void serverThread(void *par) {
 		int close = -1;
 		writen(pipe, &close, sizeof(int));	// comunico al manager che la richiesta è stata servita
 
-		return;
+		goto cleanup;
 	}
 
 	printf("SERVER THREAD: ho ricevuto %s\n", buf);
 
-	if (parser(buf) == -1) {
+	if (parser(buf, queue) == -1) {
 		printf("SERVER THREAD: errore parser.");
-		return;
+		goto cleanup;
 	}
 
 	
@@ -631,6 +613,14 @@ static void serverThread(void *par) {
 	memset(buf, '\0', BUFSIZE);
 
 	writen(pipe, &fd_c, sizeof(int));	// comunico al manager che la richiesta è stata servita
+
+	// ripulisci la memoria
+	cleanup: {
+		printf("cleanup\n");
+		if (args) {
+			free(args);
+		}
+	}
 }
 
 static void* sigThread(void *par) {
@@ -684,7 +674,7 @@ int update(fd_set set, int fdmax) {
 }
 
 // effettua il parsing dei comandi
-int parser(char *command) {
+int parser(char *command, queueT *queue) {
 	if (!command) {
 		errno = EINVAL;
 		return -1;
@@ -700,7 +690,7 @@ int parser(char *command) {
 		token3 = strtok_r(NULL, ":", &save);
 		int arg = (int) strtol(token3, NULL, 0);
 
-		if (openFile(token2, arg) == -1) {
+		if (openFile(token2, arg, queue) == -1) {
 			perror("openFile");
 			return -1;
 		}
@@ -715,13 +705,52 @@ int parser(char *command) {
 	return 0;
 }
 
-int openFile(char *pathname, int flags) {
-	if (!pathname) {
+int openFile(char *pathname, int flags, queueT* queue) {
+	if (!pathname || flags < 0 || flags > 3) {
 		errno = EINVAL;
 		return -1;
 	}
 
-	printf("OpenFile: ho ricevuto pathname = %s flags = %d\n", pathname, flags);
+	printf("OpenFile: ho ricevuto pathname = %s! flags = %d!\n", pathname, flags);
+
+	int O_CREATE = 0, O_LOCK = 0, found = 0;
+
+	/**
+	 * flags = 0 -> !O_CREATE && !O_LOCK
+	 *		 = 1 -> O_CREATE && !O_LOCK
+	 *       = 2 -> !O_CREATE && O_LOCK
+	 * 		 = 3 -> O_CREATE && O_LOCK
+	 */
+	if ((flags == 1 || flags == 3)) {
+		O_CREATE = 1;
+	}
+	
+	if ((flags == 2 || flags == 3)) {
+		O_LOCK = 1;
+	}
+
+	fileT *f = find(queue, pathname);
+	if (f != NULL) {
+		found = 1;
+	}
+
+	printf("OpenFile: found = %d\n", found);
+
+	// se il client richiede di creare un file che esiste già, errore
+	if (O_CREATE && found) {
+		errno = EEXIST;
+		return -1;
+	}
+	
+	// se il client cerca di aprire un file inesistente, errore
+	if (!O_CREATE && !found) {
+		errno = ENOENT;
+		return -1;
+	}
+
+
+
+	destroyFile(f);
 
 	return 0;
 }

@@ -110,7 +110,7 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
-	printf("DEBUG client: invio %s!\n", cmd);
+	printf("DEBUG api: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, strlen(cmd)) == -1) {
 		errno = EREMOTEIO;
@@ -123,7 +123,7 @@ int openFile(const char* pathname, int flags) {
 		return -1;
 	}
 
-	printf("DEBUG client: ho ricevuto %s!\n", buf);
+	printf("DEBUG api: ho ricevuto %s!\n", buf);
 
 	return 0;
 }
