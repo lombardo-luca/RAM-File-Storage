@@ -22,7 +22,7 @@ all		: $(TARGETS)
 server: server.o libPool.a libQueue.a libIO.a
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
-client: client.o libIO.a libAPI.a
+client: client.o libAPI.a libIO.a 
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 libPool.a: ./includes/threadpool.o ./includes/threadpool.h
@@ -34,7 +34,7 @@ libQueue.a: ./includes/fileQueue.o ./includes/fileQueue.h
 libIO.a: ./includes/partialIO.o ./includes/partialIO.h
 	$(AR) $(ARFLAGS) $@ $<
 
-libAPI.a: ./includes/api.o ./includes/api.h
+libAPI.a: ./includes/api.o ./includes/api.h 
 	$(AR) $(ARFLAGS) $@ $<
 
 server.o: server.c

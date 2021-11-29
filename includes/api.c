@@ -8,14 +8,22 @@
 #include <sys/time.h>
 
 #include <api.h>
+#include <partialIO.h>
 
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
+#define CMDSIZE 256
 
-static char socketName[SOCKNAME_MAX];
+static char socketName[SOCKNAME_MAX] = "";
 static int fd_skt;
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
+	// controllo la validità dei parametri
+	if (!sockname || msec <= 0) {
+		errno = EINVAL;
+		return -1;
+	}
+
 	struct sockaddr_un sa;
 	struct timespec ts;
 	ts.tv_sec = msec/1000;
@@ -23,12 +31,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	struct timeval t1, t2;
 	double start, end;
 	double elapsedTime;
-
-	// il tempo passato come parametro non può essere negativo
-	if (msec <= 0) {
-		errno = EINVAL;
-		return -1;
-	}
 
 	strncpy(sa.sun_path, sockname, UNIX_PATH_MAX);
 	sa.sun_family = AF_UNIX;
@@ -65,7 +67,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 int closeConnection(const char* sockname) {
 	// se il nome del socket non corrisponde a quello nella variabile globale, errore
-	if (strcmp(socketName, sockname) != 0) {
+	if (!sockname || strcmp(socketName, sockname) != 0) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -75,6 +77,53 @@ int closeConnection(const char* sockname) {
 		errno = EREMOTEIO;
 		return -1;
 	}
+
+	// resetto la variabile globale che mantiene il nome del socket
+	strncpy(socketName, "", SOCKNAME_MAX);
+
+	return 0;
+}
+
+int openFile(const char* pathname, int flags) {
+	// controllo la validità degli argomenti
+	if (!pathname || strlen(pathname) >= (CMDSIZE-10) || flags < 0 || flags > 3) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo che il client sia effettivamente connesso al server
+	if (strcmp(socketName, "") == 0) {
+		errno = ENOTCONN;
+		return -1;
+	}
+
+	char cmd[CMDSIZE] = "";
+	char buf[CMDSIZE] = "";
+
+	// preparo il comando da inviare al server in formato openFile:pathname:flags
+	memset(cmd, '\0', CMDSIZE);
+	strncpy(cmd, "openFile:", 10);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+	strncat(cmd, ":", 2);
+	char flagStr[2];
+	snprintf(flagStr, 2, "%d", flags);
+	strncat(cmd, flagStr, strlen(flagStr) + 1);
+
+	// invio il comando al server
+	printf("DEBUG client: invio %s!\n", cmd);
+
+	if (writen(fd_skt, cmd, strlen(cmd)) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	// ricevo la risposta dal server
+	if ((readn(fd_skt, buf, CMDSIZE)) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	printf("DEBUG client: ho ricevuto %s!\n", buf);
 
 	return 0;
 }

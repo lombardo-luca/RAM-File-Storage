@@ -23,6 +23,8 @@
 static void serverThread(void *par);
 static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
+int parser(char *command);
+int openFile(char *pathname, int flags);
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -219,7 +221,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		else {
-			printf("Errore di configuraizone: opzione non riconosciuta.\n");
+			printf("Errore di configurazione: opzione non riconosciuta.\n");
 			free(option);
 			fclose(configFile);	// chiudo il file di configurazione
 			return 1;
@@ -254,6 +256,62 @@ int main(int argc, char *argv[]) {
 		perror("pthread_create per st.\n");
 		return 1;
 	}
+
+	// creo la coda di file
+	queueT *queue = createQueue(maxFiles, maxSize);
+
+	/*
+	printf("TEST\n");
+	fileT *f1, *f2;
+	void *buf1 = malloc(256);
+	void *buf2 = malloc(256);
+	char str[256] = "test";
+	memcpy(buf1, "contenutofile1", 15);
+	memcpy(buf2, str, sizeof(str));
+	 
+	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
+		perror("createFile f1");
+		return 1;
+	}
+
+	if (writeFile(f1, buf1, 15) == -1) {
+		perror("writeFile f1");
+		return 1;
+	}
+
+	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
+		perror("createFile f2");
+		return 1;
+	}
+
+	if (writeFile(f2, buf2, 5) == -1) {
+		perror("writeFile f1");
+		return 1;
+	}	
+
+	if (writeQueue(queue, f1) != 0) {
+		perror("writeQueue f1");
+		return 1;
+	}
+
+	if (writeQueue(queue, f2) != 0) {
+		perror("writeQueue f2");
+		return 1;
+	}
+
+	free(buf1);
+	free(buf2);
+
+	fileT *f3;
+	if ((f3 = readQueue(queue)) == NULL) {
+		perror("readQueue f3");
+		return 1;
+	}
+
+	printf("f3 contenuto: %s\n", (char*) f3->content);
+	destroyFile(f3);
+	printf("FINE TEST\n");
+	*/
 
 	// creo la threadpool
 	threadpool_t *pool = NULL;
@@ -430,6 +488,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	destroyThreadPool(pool, 0);		// notifico a tutti i thread workers di terminare
+	destroyQueue(queue);			// distruggo la coda di file e libero la memoria
 
 	if (pthread_join(st, NULL) != 0) {
 		perror("pthread_join.\n");
@@ -508,6 +567,13 @@ static void serverThread(void *par) {
 
 	printf("SERVER THREAD: ho ricevuto %s\n", buf);
 
+	if (parser(buf) == -1) {
+		printf("SERVER THREAD: errore parser.");
+		return;
+	}
+
+	
+	/*
 	char str[BUFSIZE] = "";
 
 	int i = 0;
@@ -523,6 +589,7 @@ static void serverThread(void *par) {
 	writen(fd_c, str, BUFSIZE);
 	printf("SERVER THREAD: ho mandato %s\n\n", str);
 	fflush(stdout);
+	*/
 
 	memset(buf, '\0', BUFSIZE);
 
@@ -577,4 +644,47 @@ int update(fd_set set, int fdmax) {
 	}
 
 	return -1;
+}
+
+// effettua il parsing dei comandi
+int parser(char *command) {
+	if (!command) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// parso il comando ricevuto dal client
+	char *token = NULL, *save = NULL, *token2 = NULL, *token3 = NULL;
+	token = strtok_r(command, ":", &save);
+
+	// il comando ricevuto è openFile
+	if (strcmp(token, "openFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+		token3 = strtok_r(NULL, ":", &save);
+		int arg = (int) strtol(token3, NULL, 0);
+
+		if (openFile(token2, arg) == -1) {
+			perror("openFile");
+			return -1;
+		}
+	}
+
+	// comando non riconosciuto
+	else {
+		printf("PARSER: comando non riconosciuto.\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+int openFile(char *pathname, int flags) {
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	printf("OpenFile: ho ricevuto pathname = %s flags = %d\n", pathname, flags);
+
+	return 0;
 }

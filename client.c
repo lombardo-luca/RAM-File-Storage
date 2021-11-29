@@ -16,9 +16,11 @@
 #define CMDSIZE 256
 #define BUFSIZE 256
 
+int cmd_f(char* socket);
+
 int main(int argc, char* argv[]) {
-	char buf[BUFSIZE] = "";
-	char cmd[CMDSIZE] = "";
+	//char buf[BUFSIZE] = "";
+	//char cmd[CMDSIZE] = "";
 	char sock[256];
 
 	printf("File Storage Client avviato.\n");
@@ -57,6 +59,11 @@ int main(int argc, char* argv[]) {
 			case '?': default:
 				break;
 		}
+	}
+
+	if (openFile("test", 2) == -1) {
+		perror("openFile");
+		return -1;
 	}
 
 	/*
