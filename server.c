@@ -19,6 +19,7 @@
 
 #define UNIX_PATH_MAX 108 
 #define BUFSIZE 256
+#define CMDSIZE 256
 
 typedef struct struct_thread {
 	long *args;
@@ -218,7 +219,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	// creo la coda di file
-	queueT *queue = createQueue(maxFiles, maxSize);
+	queueT *queue = createQueue(maxFiles+1, maxSize);
 
 	printf("TEST QUEUE\n");
 	void *buf1 = malloc(256);
@@ -241,13 +242,34 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}	
 
+	printf("queue len = %ld\n", queue->len);
+
 	if (push(queue, f1) != 0) {
 		perror("push f1");
 		return 1;
 	}
 
+	fileT *popF;
+	popF = pop(queue);
+
+	if (popF == NULL) {
+		printf("ERRORE??\n");
+	}
+
+	printf("queue len = %ld\n", queue->len);
+
+	if (push(queue, f1) != 0) {
+		perror("push f1");
+		return 1;
+	}
+
+	printf("queue len = %ld\n", queue->len);
+
+	//destroyFile(popF);
+
 	free(buffer);
 	free(buf1);
+	printf("FINE TEST QUEUE\n");
 
 	/*
 	ipf = fopen("test/file2.txt", "rb");
@@ -582,11 +604,11 @@ static void serverThread(void *par) {
 
 	printf("SERVER THREAD: select ok.\n");
 
-	char buf[BUFSIZE];
-	memset(buf, '\0', BUFSIZE);
+	char buf[CMDSIZE];
+	memset(buf, '\0', CMDSIZE);
 
 	int n;
-	n = read(fd_c, buf, BUFSIZE);	// leggi il messaggio del client	
+	n = read(fd_c, buf, CMDSIZE);	// leggi il messaggio del client	
 
 	if (n == 0 || strcmp(buf, "quit\n") == 0) {
 		printf("SERVER THREAD: chiudo la connessione col client\n");
@@ -738,6 +760,7 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	if (f != NULL) {
 		found = 1;
 	}
+
 	destroyFile(f);
 
 	printf("OpenFile: found = %d\n", found);
@@ -757,28 +780,37 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	// il client vuole creare il file
 	if (O_CREATE && !found) {
 		// se la coda è piena, espelli un file secondo la politica FIFO
-		if (queue->len == queue->maxLen) {
+		if (queue->len == queue->maxLen-1) {
 			espulso = pop(queue);
 
 			if (espulso == NULL) {
 				perror("pop");
-			}
 
-			else {
-				char es[3] = "es";
-				memcpy(res, es, 3);
+				goto send;
 			}
-
-			goto send;
 		}
 
 		// crea il file come richiesto dal client
 		fileT *f = createFile(pathname, O_LOCK, fd_c);
 
+		printf("La dimensione della coda attualmente e' %ld\n", queue->len);
+
 		if (f == NULL) {
 			perror("createFile");
 			goto send;
 		}
+
+		else if (push(queue, f) != 0) {
+			perror("push");
+			goto send;
+		}
+
+		printf("sono arrivato qui alfabeto\n");
+
+		char es[3] = "es";
+		memcpy(res, es, 3);
+
+		goto send;
 	}
 
 	char ok[3] = "ok";

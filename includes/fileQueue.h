@@ -10,12 +10,12 @@ typedef struct {
     size_t size;        // dimensione del file in bytes
 } fileT;
 
-// coda FIFO di fileT
+// coda FIFO di fileT. E' vuota quando head == tail, quindi può contenere al massimo maxLen-1 elementi.
 typedef struct {
     size_t head;
     size_t tail;
-    size_t maxLen;      // numero massimo di elementi supportati nella coda
-    size_t len;         // numero attuale di elementi nella coda (<= maxLen)
+    size_t maxLen;      // numero massimo di elementi supportati nella coda + 1
+    size_t len;         // numero attuale di elementi nella coda (< maxLen)
     size_t maxSize;     // dimensione massima degli elementi nella coda
     size_t size;        // somma delle dimensioni degli elementi presenti in coda (<= maxSize)
     fileT** data;       

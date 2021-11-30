@@ -181,7 +181,8 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
     }
     */
 
-    queue->head = queue->tail = 0;
+    queue->head = 0;
+    queue->tail = 0;
     queue->maxLen = maxLen;
     queue->len = 0;
     queue->maxSize = maxSize;
@@ -190,6 +191,81 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
     return queue;
 }
 
+int push(queueT *queue, fileT* data) {
+    // controllo la validità degli argomenti
+    if (!queue || !data) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda è piena, errore
+    if (((queue->head + 1) % queue->maxLen) == queue->tail) {
+        errno = ENFILE;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    printf("push: la dimensione del file che voglio aggiungere e' %ld\n", data->size);
+
+    // se non c'è abbastanza spazio, errore
+    if (queue->size + data->size > queue->maxSize) {
+        errno = EFBIG;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    // altrimenti inserisco l'elemento
+    assert(queue->data[queue->head] == NULL);
+    queue->data[queue->head] = data;
+    queue->head = (queue->head + 1) % queue->maxLen;
+
+    queue->len++;
+    queue->size += data->size;
+
+    //pthread_cond_signal(&queue->empty);  // segnalo che la coda non è vuota
+    pthread_mutex_unlock(&queue->m);
+    return 0;
+}
+
+// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
+fileT* pop(queueT *queue) {
+    // controllo la validità dell'argomento
+    if (!queue) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda è vuota, errore
+    if (queue->tail == queue->head) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return NULL;
+    }
+
+    fileT *data = queue->data[queue->tail];
+
+    if (data == NULL) {
+        printf("Errore! non dovrebbe succedere\n");
+    }
+
+    queue->data[queue->tail] = NULL;
+    queue->tail = (queue->tail + 1) % queue->maxLen;
+
+    printf("pop: ho rimosso il file %s di dimensione %ld\n", data->filepath, data->size);
+    queue->len--;
+    queue->size -= data->size;
+
+    assert(queue->len >= 0);
+
+    pthread_mutex_unlock(&queue->m);
+    return data;
+}
+
+/*
 // attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
 fileT* pop(queueT *queue) {
     // controllo la validità dell'argomento
@@ -207,13 +283,6 @@ fileT* pop(queueT *queue) {
         return NULL;
     }
 
-    /*
-    // finché la coda è vuota, aspetto
-    while (queue->len == 0) {
-        pthread_cond_wait(&queue->empty, &queue->m);
-    }
-    */
-
     fileT *data = queue->data[queue->head];
     queue->head += (queue->head + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
     queue->len--;
@@ -228,7 +297,9 @@ fileT* pop(queueT *queue) {
     pthread_mutex_unlock(&queue->m);
     return data;
 }
+*/
 
+/*
 int push(queueT *queue, fileT* data) {
     // controllo la validità degli argomenti
     if (!queue || !data) {
@@ -244,13 +315,6 @@ int push(queueT *queue, fileT* data) {
         pthread_mutex_unlock(&queue->m);
         return -1;
     }
-
-    /*
-    // se la coda è piena, aspetto
-    while (queue->len == queue->maxLen) {
-        pthread_cond_wait(&queue->full, &queue->m);
-    }
-    */
 
     printf("push: la dimensione del file che voglio aggiungere e' %ld\n", data->size);
 
@@ -272,6 +336,7 @@ int push(queueT *queue, fileT* data) {
     pthread_mutex_unlock(&queue->m);
     return 0;
 }
+*/
 
 // attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
 fileT* find(queueT *queue, char *filepath) {
@@ -283,19 +348,36 @@ fileT* find(queueT *queue, char *filepath) {
 
     pthread_mutex_lock(&queue->m);
 
-    if (queue->len == 0) {
+    if (queue->tail == queue->head) {
         pthread_mutex_unlock(&queue->m);
         return NULL;
     }
 
     fileT *res = NULL;
     int cnt = 0, found = 0;
-    size_t temp = queue->head;
+    size_t temp = queue->head+1;
+
+    printf("queue->len = %ld\n", queue->len);
+    printf("FIND: Inizio a scorrere... temp = %ld\n", temp);
 
     // scorro tutta la coda
-    while (cnt < queue->len && !found) {
+    while (temp-1 != queue->tail && !found) {
+        printf("cnt = %d\n", cnt);
+
+        if (queue->data[temp] == NULL) {
+            printf("ERRORE GREVE\n");
+        }
+
+        //printf("niente errore greve\n");
+
+        if ((queue->data[temp])->filepath == NULL) {
+            printf("Non allocato filepath?\n");
+        }
+
+        printf("prima dello strcmp\n");
         // se trovo l'elemento cercato...
         if (strcmp(filepath, (queue->data[temp])->filepath) == 0) {
+            printf("sono dentro lo strcmp\n");
             found = 1;
 
             // ...creane una copia e restituiscila
@@ -307,9 +389,23 @@ fileT* find(queueT *queue, char *filepath) {
             }
         }
 
-        temp += (temp + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
+        printf("passato lo strcmp\n");
+
+        if (temp + 1 == queue->tail) {
+            printf("entro nell'if\n");
+            temp += 1 - queue->maxLen;
+        }
+
+        else {
+            printf("entro nell'else\n");
+            temp += 1;
+        }
+
+        //temp += (temp + 1 >= queue->maxLen) ? (1 - (queue->maxLen)) : 1;
         cnt++;
     }
+
+    printf("passato il while\n");
 
     pthread_mutex_unlock(&queue->m);
 
@@ -352,13 +448,22 @@ void destroyQueue(queueT *queue) {
     if (queue) {
          // se la coda non è vuota, libera la memoria per ogni elemento
         while (queue->len > 0) {
-             fileT *data = NULL;
+            printf("queue len = %ld\n", queue->len);
+            fileT *data = NULL;
             data = pop(queue);
+
+            if (data == NULL) {
+                perror("pop");
+                break;
+            }
+
             destroyFile(data);
         }
 
         cleanupQueue(queue);
     }
+
+    printf("ho finito la destroyqueue\n");
 }
 
 // funzione di pulizia

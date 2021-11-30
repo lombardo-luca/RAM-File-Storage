@@ -113,15 +113,15 @@ int openFile(const char* pathname, int flags) {
 	// invio il comando al server
 	printf("DEBUG api: invio %s!\n", cmd);
 
-	if (writen(fd_skt, cmd, strlen(cmd)) == -1) {
+	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
 	void *buf = malloc(BUFSIZE);
-
+	int r = readn(fd_skt, buf, 3);
 	// ricevo la risposta dal server
-	if ((readn(fd_skt, buf, 3)) == -1) {
+	if (r == -1 || r == 0) {
 		free(buf);
 		errno = EREMOTEIO;
 		return -1;
