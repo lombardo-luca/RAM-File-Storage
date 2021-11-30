@@ -167,6 +167,7 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
         return (queueT*) NULL;
     }
 
+    /*
     if (pthread_cond_init(&queue->full, NULL) != 0) {
         perror("pthread_cond_init full");
         cleanupQueue(queue);
@@ -178,6 +179,7 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
         cleanupQueue(queue);
         return (queueT*) NULL;
     }
+    */
 
     queue->head = queue->tail = 0;
     queue->maxLen = maxLen;
@@ -198,10 +200,19 @@ fileT* pop(queueT *queue) {
 
     pthread_mutex_lock(&queue->m);
 
+    // se la coda è vuota, errore
+    if (queue->len == 0) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return NULL;
+    }
+
+    /*
     // finché la coda è vuota, aspetto
     while (queue->len == 0) {
         pthread_cond_wait(&queue->empty, &queue->m);
     }
+    */
 
     fileT *data = queue->data[queue->head];
     queue->head += (queue->head + 1 >= queue->maxLen) ? (1 - queue->maxLen) : 1;
@@ -213,7 +224,7 @@ fileT* pop(queueT *queue) {
 
     assert(queue->len >= 0);
 
-    pthread_cond_signal(&queue->full);  // segnalo che la coda non è piena
+    //pthread_cond_signal(&queue->full);  // segnalo che la coda non è piena
     pthread_mutex_unlock(&queue->m);
     return data;
 }
@@ -227,12 +238,21 @@ int push(queueT *queue, fileT* data) {
 
     pthread_mutex_lock(&queue->m);
 
+    // se la coda è piena, errore
+    if (queue->len == queue->maxLen) {
+        errno = ENFILE;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    /*
     // se la coda è piena, aspetto
     while (queue->len == queue->maxLen) {
         pthread_cond_wait(&queue->full, &queue->m);
     }
+    */
 
-    printf("push: la dimensione del file aggiunto e' %ld\n", data->size);
+    printf("push: la dimensione del file che voglio aggiungere e' %ld\n", data->size);
 
     // se non c'è abbastanza spazio, errore
     if (queue->size + data->size > queue->maxSize) {
@@ -248,7 +268,7 @@ int push(queueT *queue, fileT* data) {
     queue->len++;
     queue->size += data->size;
 
-    pthread_cond_signal(&queue->empty);  // segnalo che la coda non è vuota
+    //pthread_cond_signal(&queue->empty);  // segnalo che la coda non è vuota
     pthread_mutex_unlock(&queue->m);
     return 0;
 }
@@ -352,6 +372,7 @@ void cleanupQueue(queueT *queue) {
             pthread_mutex_destroy(&queue->m);
         }
 
+        /*
         if (&queue->full) {
             pthread_cond_destroy(&queue->full);
         }
@@ -359,6 +380,7 @@ void cleanupQueue(queueT *queue) {
         if (&queue->empty) {
             pthread_cond_destroy(&queue->empty);
         }
+        */
 
         free(queue);
     }

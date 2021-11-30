@@ -20,8 +20,8 @@ typedef struct {
     size_t size;        // somma delle dimensioni degli elementi presenti in coda (<= maxSize)
     fileT** data;       
     pthread_mutex_t m;
-    pthread_cond_t full;
-    pthread_cond_t empty;
+    //pthread_cond_t full;
+    //pthread_cond_t empty;
 } queueT;
 
 /**

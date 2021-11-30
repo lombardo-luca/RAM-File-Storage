@@ -222,28 +222,17 @@ int main(int argc, char *argv[]) {
 
 	printf("TEST QUEUE\n");
 	void *buf1 = malloc(256);
-	void *buf2 = malloc(256);
-	fileT *f1, *f2;
+	fileT *f1;
 	char str1[256] = "contenutofile1";
-	char str2[5] = "test";
 	memcpy(buf1, str1, 15);
-	memcpy(buf2, str2, 5);
 	 
-	printf("TEST LETTURA DA FILE\n");
 	void *buffer = malloc(256);
     FILE* ipf = fopen("test/file1.txt", "rb");
     int r = fread(buffer, 1, 256, ipf);
-    printf("Bytes letti: %d\n", r);
     fclose(ipf);
-    printf("FINE TEST LETTURA FILE\n");
 
 	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
 		perror("createFile f1");
-		return 1;
-	}
-
-	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
-		perror("createFile f2");
 		return 1;
 	}
 
@@ -252,6 +241,15 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}	
 
+	if (push(queue, f1) != 0) {
+		perror("push f1");
+		return 1;
+	}
+
+	free(buffer);
+	free(buf1);
+
+	/*
 	ipf = fopen("test/file2.txt", "rb");
 	int r2 = fread(buffer, 1, 256, ipf);  
 	fclose(ipf);
@@ -263,16 +261,6 @@ int main(int argc, char *argv[]) {
 	}	
 
 	free(buffer);
-
-	if (writeFile(f2, buf2, 5) == -1) {
-		perror("writeFile f2");
-		return 1;
-	}
-
-	if (push(queue, f1) != 0) {
-		perror("push f1");
-		return 1;
-	}
 
 	if (push(queue, f2) != 0) {
 		perror("push f2");
@@ -318,12 +306,18 @@ int main(int argc, char *argv[]) {
 		printf("file trovato\n");
 	}
 
-	free(buf1);
-	free(buf2);
-	destroyFile(f3);
-	destroyFile(ff1);
-	destroyFile(ff2);
+	//free(buf1);
+	//free(buf2);
+
+	//free(f1);
+	//free(f2);
+
+	//destroyFile(f3);
+	//destroyFile(ff1);
+	//destroyFile(ff2);
+
 	printf("FINE TEST QUEUE\n");
+	*/
 	//return 0;
 
 	// creo la threadpool
@@ -611,19 +605,8 @@ static void serverThread(void *par) {
 		goto cleanup;
 	}
 
-	
 	/*
 	char str[BUFSIZE] = "";
-
-	int i = 0;
-	char chr;
-
-	while (buf[i]) {
-		chr = toupper(buf[i]);
-		str[i] = chr;
-		i++;
-	}
-
 	//write(fd_c, str, strlen(str));
 	writen(fd_c, str, BUFSIZE);
 	printf("SERVER THREAD: ho mandato %s\n\n", str);
@@ -695,7 +678,7 @@ int update(fd_set set, int fdmax) {
 
 // effettua il parsing dei comandi
 int parser(char *command, queueT *queue, long fd_c) {
-	if (!command) {
+	if (!command || !queue) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -775,19 +758,21 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	if (O_CREATE && !found) {
 		// se la coda è piena, espelli un file secondo la politica FIFO
 		if (queue->len == queue->maxLen) {
-			fileT *espulso;
 			espulso = pop(queue);
 
 			if (espulso == NULL) {
 				perror("pop");
 			}
 
-			char es[3] = "es";
-			memcpy(res, es, 3);
+			else {
+				char es[3] = "es";
+				memcpy(res, es, 3);
+			}
 
 			goto send;
 		}
 
+		// crea il file come richiesto dal client
 		fileT *f = createFile(pathname, O_LOCK, fd_c);
 
 		if (f == NULL) {
@@ -805,19 +790,44 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 		void *buf = NULL;
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
-		writen(fd_c, buf, 3);
+		if (writen(fd_c, buf, 3) == -1) {
+			perror("writen");
+			return;
+		}
 
-		// se un file è stato espulso dalla coda, invialo al client
-		if (strcmp(res, "esp") == 0) {
-			// invio prima il filepath
-			memset(&buf, 0, sizeof(buf));
+		// se un file è stato espulso dalla coda, lo invio al client
+		if (strcmp(res, "es") == 0) {
+			// invio prima il filepath...
+			printf("invio il filepath: %s\n", espulso->filepath);
+			memset(buf, 0, BUFSIZE);
 			memcpy(buf, espulso->filepath, strlen(espulso->filepath)+1);
-			writen(fd_c, buf, BUFSIZE);
+			printf("memcpy fatta\n");
+			if (writen(fd_c, buf, BUFSIZE) == -1) {
+				perror("writen");
+				return;
+			}
 
-			// e poi il contenuto del file
-			memset(&buf, 0, sizeof(buf));
+			// ... poi la dimensione del file...
+			if (writen(fd_c, &espulso->size, sizeof(size_t)) == -1) {
+				perror("writen");
+				return;
+			}
+
+			// ...e infine il contenuto
+			memset(buf, 0, BUFSIZE);
 			memcpy(buf, espulso->content, espulso->size);
-			writen(fd_c, buf, BUFSIZE);
+			if (writen(fd_c, buf, espulso->size) == -1) {
+				perror("writen");
+				return;
+			}
+		}
+
+		// se c'è stato un errore, invio errno al client
+		else if(strcmp(res, "er") == 0) {			
+			if (writen(fd_c, &errno, sizeof(int)) == -1) {
+				perror("writen");
+				return;
+			}
 		}
 
 		free(buf);

@@ -122,13 +122,84 @@ int openFile(const char* pathname, int flags) {
 
 	// ricevo la risposta dal server
 	if ((readn(fd_skt, buf, 3)) == -1) {
+		free(buf);
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	printf("Ho ricevuto: %s!\n", (char*) buf);
+	char res[3];
+	memcpy(res, buf, 3);
+
+	printf("Ho ricevuto: %s!\n", res);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(buf, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, buf, sizeof(int))) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, buf, sizeof(int));
+		free(buf);
+		return -1;
+	}
+
+	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
+	else if (strcmp(res, "es") == 0) {
+		memset(buf, 0, BUFSIZE);
+		char filepath[BUFSIZE];
+		size_t size;
+		void *content = NULL;
+
+		// ricevo prima il filepath...
+		if ((readn(fd_skt, buf, BUFSIZE)) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		strncpy(filepath, buf, BUFSIZE);
+		printf("Ho ricevuto filepath = %s\n", filepath);
+
+		// ...poi la dimensione del file...
+		memset(buf, 0, BUFSIZE);
+		if ((readn(fd_skt, buf, sizeof(size_t))) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		memcpy(&size, buf, sizeof(size_t));
+		printf("Ho ricevuto size = %ld\n", size);
+
+		content = malloc(size);
+
+		// ...e infine il contenuto
+		if ((readn(fd_skt, content, size)) == -1) {
+			free(buf);
+			free(content);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		printf("Ho ricevuto il contenuto!\n");
+
+		printf("TEST SCRITTURA SU FILE\n");
+	    FILE* opf = fopen("testscritturaCLIENT", "w");
+	    printf("Voglio scrivere %ld bytes\n", size);
+	    fwrite(content, 1, size, opf);
+	    fclose(opf);
+	    printf("FINE TEST SCRITTURA SU FILE\n");
+
+		free(content);
+	}
 
 	free(buf);
-
+	
 	return 0;
 }
