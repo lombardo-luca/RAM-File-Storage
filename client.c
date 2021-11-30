@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if (openFile("test/file2.txt", 2) == -1) {
+	if (openFile("test/file2.txt", 1) == -1) {
 		perror("openFile");
 		return -1;
 	}

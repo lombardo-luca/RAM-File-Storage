@@ -28,8 +28,8 @@ typedef struct struct_thread {
 static void serverThread(void *par);
 static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
-int parser(char *command, queueT *queue);
-int openFile(char *pathname, int flags, queueT *queue);
+int parser(char *command, queueT *queue, long fd_c);
+void openFile(char *pathname, int flags, queueT *queue, long fd_c);
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -105,7 +105,7 @@ int main(int argc, char *argv[]) {
 			option[len] = '\0';
 		}
 
-		// se l'opzione letta è threadpoolSize, configuro la dimensione della threadpool
+		// configuro la dimensione della threadpool
 		if (strcmp("threadpoolSize", option) == 0) {
 			threadpoolSize = strtol(value, NULL, 0);
 
@@ -119,6 +119,7 @@ int main(int argc, char *argv[]) {
 			printf("CONFIG: Dimensione della threadPool = %d\n", threadpoolSize);
 		}
 
+		// configuro il nome del socket
 		else if (strcmp("sockName", option) == 0) {
 			strncpy(sockName, value, 256);
 			sockName[strcspn(sockName, "\n")] = 0;	// rimuovo la newline dal nome del socket
@@ -126,6 +127,7 @@ int main(int argc, char *argv[]) {
 			printf("CONFIG: Socket name = %s\n", sockName);
 		}
 
+		// configuro il numero massimo di file supportati
 		else if (strcmp("maxFiles", option) == 0) {
 			maxFiles = (size_t) strtol(value, NULL, 0);
 
@@ -139,6 +141,7 @@ int main(int argc, char *argv[]) {
 			printf("CONFIG: Numero massimo di file supportati = %ld\n", maxFiles);
 		}
 
+		// configuro la dimensione massima supportata (in MB)
 		else if (strcmp("maxSize", option) == 0) {
 			maxSize = (size_t) (strtol(value, NULL, 0) * 1000000);
 
@@ -152,6 +155,7 @@ int main(int argc, char *argv[]) {
 			printf("CONFIG: Dimensione massima supportata = %lu MB (%lu bytes)\n", maxSize/1000000, maxSize);
 		}
 
+		// configuro il nome del file nel quale verranno scritti i logs
 		else if (strcmp("logFile", option) == 0) {
 
 			if (strcmp(value, "") == 0) {
@@ -225,6 +229,14 @@ int main(int argc, char *argv[]) {
 	memcpy(buf1, str1, 15);
 	memcpy(buf2, str2, 5);
 	 
+	printf("TEST LETTURA DA FILE\n");
+	void *buffer = malloc(256);
+    FILE* ipf = fopen("test/file1.txt", "rb");
+    int r = fread(buffer, 1, 256, ipf);
+    printf("Bytes letti: %d\n", r);
+    fclose(ipf);
+    printf("FINE TEST LETTURA FILE\n");
+
 	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
 		perror("createFile f1");
 		return 1;
@@ -235,15 +247,22 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	if (writeFile(f1, buf1, 15) == -1) {
+	if (writeFile(f1, buffer, r) == -1) {
 		perror("writeFile f1");
 		return 1;
 	}	
 
-	if (writeFile(f1, buf1, 15) == -1) {
+	ipf = fopen("test/file2.txt", "rb");
+	int r2 = fread(buffer, 1, 256, ipf);  
+	fclose(ipf);
+	printf("Bytes letti: %d\n", r2);
+
+	if (writeFile(f1, buffer, r2) == -1) {
 		perror("writeFile f1");
 		return 1;
 	}	
+
+	free(buffer);
 
 	if (writeFile(f2, buf2, 5) == -1) {
 		perror("writeFile f2");
@@ -272,6 +291,7 @@ int main(int argc, char *argv[]) {
 
 	printf("TEST SCRITTURA SU FILE\n");
     FILE* opf = fopen("testscrittura.txt", "w");
+    printf("Voglio scrivere %ld bytes\n", ff1->size);
     fwrite(ff1->content, 1, ff1->size, opf);
     fclose(opf);
     printf("FINE TEST SCRITTURA SU FILE\n");
@@ -586,7 +606,7 @@ static void serverThread(void *par) {
 
 	printf("SERVER THREAD: ho ricevuto %s\n", buf);
 
-	if (parser(buf, queue) == -1) {
+	if (parser(buf, queue, fd_c) == -1) {
 		printf("SERVER THREAD: errore parser.");
 		goto cleanup;
 	}
@@ -674,7 +694,7 @@ int update(fd_set set, int fdmax) {
 }
 
 // effettua il parsing dei comandi
-int parser(char *command, queueT *queue) {
+int parser(char *command, queueT *queue, long fd_c) {
 	if (!command) {
 		errno = EINVAL;
 		return -1;
@@ -690,28 +710,29 @@ int parser(char *command, queueT *queue) {
 		token3 = strtok_r(NULL, ":", &save);
 		int arg = (int) strtol(token3, NULL, 0);
 
-		if (openFile(token2, arg, queue) == -1) {
-			perror("openFile");
-			return -1;
-		}
+		openFile(token2, arg, queue, fd_c);
 	}
 
 	// comando non riconosciuto
 	else {
 		printf("PARSER: comando non riconosciuto.\n");
+		fflush(stdout);
 		return -1;
 	}
 
 	return 0;
 }
 
-int openFile(char *pathname, int flags, queueT* queue) {
+void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
+	void *res = malloc(BUFSIZE);
+	char er[3] = "er";
+	memcpy(res, er, 3);
+	fileT *espulso = NULL;
+
 	if (!pathname || flags < 0 || flags > 3) {
 		errno = EINVAL;
-		return -1;
+		goto send;
 	}
-
-	printf("OpenFile: ho ricevuto pathname = %s! flags = %d!\n", pathname, flags);
 
 	int O_CREATE = 0, O_LOCK = 0, found = 0;
 
@@ -729,28 +750,82 @@ int openFile(char *pathname, int flags, queueT* queue) {
 		O_LOCK = 1;
 	}
 
+	// cerco se il file è presente nel server
 	fileT *f = find(queue, pathname);
 	if (f != NULL) {
 		found = 1;
 	}
+	destroyFile(f);
 
 	printf("OpenFile: found = %d\n", found);
 
 	// se il client richiede di creare un file che esiste già, errore
 	if (O_CREATE && found) {
 		errno = EEXIST;
-		return -1;
+		goto send;
 	}
 	
 	// se il client cerca di aprire un file inesistente, errore
 	if (!O_CREATE && !found) {
 		errno = ENOENT;
-		return -1;
+		goto send;
 	}
 
+	// il client vuole creare il file
+	if (O_CREATE && !found) {
+		// se la coda è piena, espelli un file secondo la politica FIFO
+		if (queue->len == queue->maxLen) {
+			fileT *espulso;
+			espulso = pop(queue);
 
+			if (espulso == NULL) {
+				perror("pop");
+			}
 
-	destroyFile(f);
+			char es[3] = "es";
+			memcpy(res, es, 3);
 
-	return 0;
+			goto send;
+		}
+
+		fileT *f = createFile(pathname, O_LOCK, fd_c);
+
+		if (f == NULL) {
+			perror("createFile");
+			goto send;
+		}
+	}
+
+	char ok[3] = "ok";
+	memcpy(res, ok, 3);
+
+	// invia risposta al client
+	send: {
+		printf("OpenFile: mando risposta al client\n");
+		void *buf = NULL;
+		buf = malloc(BUFSIZE);
+		memcpy(buf, res, 3);
+		writen(fd_c, buf, 3);
+
+		// se un file è stato espulso dalla coda, invialo al client
+		if (strcmp(res, "esp") == 0) {
+			// invio prima il filepath
+			memset(&buf, 0, sizeof(buf));
+			memcpy(buf, espulso->filepath, strlen(espulso->filepath)+1);
+			writen(fd_c, buf, BUFSIZE);
+
+			// e poi il contenuto del file
+			memset(&buf, 0, sizeof(buf));
+			memcpy(buf, espulso->content, espulso->size);
+			writen(fd_c, buf, BUFSIZE);
+		}
+
+		free(buf);
+	}
+
+	if (espulso) {
+		destroyFile(espulso);
+	}
+
+	free(res);
 }

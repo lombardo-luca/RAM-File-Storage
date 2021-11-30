@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <errno.h>
@@ -13,6 +14,7 @@
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
 #define CMDSIZE 256
+#define BUFSIZE 256
 
 static char socketName[SOCKNAME_MAX] = "";
 static int fd_skt;
@@ -98,7 +100,6 @@ int openFile(const char* pathname, int flags) {
 	}
 
 	char cmd[CMDSIZE] = "";
-	char buf[CMDSIZE] = "";
 
 	// preparo il comando da inviare al server in formato openFile:pathname:flags
 	memset(cmd, '\0', CMDSIZE);
@@ -117,13 +118,17 @@ int openFile(const char* pathname, int flags) {
 		return -1;
 	}
 
+	void *buf = malloc(BUFSIZE);
+
 	// ricevo la risposta dal server
-	if ((readn(fd_skt, buf, CMDSIZE)) == -1) {
+	if ((readn(fd_skt, buf, 3)) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	printf("DEBUG api: ho ricevuto %s!\n", buf);
+	printf("Ho ricevuto: %s!\n", (char*) buf);
+
+	free(buf);
 
 	return 0;
 }

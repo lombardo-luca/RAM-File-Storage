@@ -1,11 +1,13 @@
+#define MAX_OPENED_BY 5     // numero di utenti massimo che possono aprire contemporaneamente un file
+
 // struttura dati per gestire i file in memoria
 typedef struct {
     char* filepath;     // path assoluto del file
     int O_LOCK;         // flag per la modalità locked
     int owner;          // file descriptor del client che ha richiesto l'operazione di lock sul file
+    int openedBy[MAX_OPENED_BY];     // array che contiene i file descriptors di ogni client che ha accesso al file   
     void *content;      // contenuto del file
     size_t size;        // dimensione del file in bytes
-    pthread_mutex_t m; 
 } fileT;
 
 // coda FIFO di fileT
@@ -32,7 +34,7 @@ typedef struct {
 fileT* createFile(char *filepath, int O_LOCK, int owner);
 
 /**
- * Scrive del contenuto su un fileT creato con createFile.
+ * Scrive del contenuto su un fileT creato con createFile. L'operazione di scrittura avviene sempre in append.
  * \param f -> fileT sul quale scrivere
  * \param content -> contenuto da scrivere
  * \size -> dimensione in bytes del contenuto da scrivere
@@ -76,6 +78,11 @@ int push(queueT *queue, fileT* data);
  * \retval -> puntatore al fileT trovato, NULL se non trovato o errore (setta errno)
  */
 fileT* find(queueT *queue, char *filepath);
+
+/**
+ * 
+ */
+int lockFile(queueT *queue, char *filepath, int owner);
 
 /**
  * Restituisce la lunghezza attuale della coda (ovvero il numero di elementi presenti).
