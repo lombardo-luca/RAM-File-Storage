@@ -21,6 +21,7 @@
 #define BUFSIZE 256
 #define CMDSIZE 256
 
+// struttura dati che contiene gli argomenti da passare ai worker threads
 typedef struct struct_thread {
 	long *args;
 	queueT *queue;
@@ -30,7 +31,7 @@ static void serverThread(void *par);
 static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
 int parser(char *command, queueT *queue, long fd_c);
-void openFile(char *pathname, int flags, queueT *queue, long fd_c);
+void openFile(char *filepath, int flags, queueT *queue, long fd_c);
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -232,7 +233,7 @@ int main(int argc, char *argv[]) {
     int r = fread(buffer, 1, 256, ipf);
     fclose(ipf);
 
-	if ((f1 = createFile("test/file1.txt", 0, 0)) == NULL) {
+	if ((f1 = createFile("test/file1.txt", 0, 0, 0)) == NULL) {
 		perror("createFile f1");
 		return 1;
 	}
@@ -251,7 +252,7 @@ int main(int argc, char *argv[]) {
 
 	printf("queue len = %ld (dovrebbe essere 1)\n", queue->len);
 
-	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
+	if ((f2 = createFile("test/file2.txt", 1, 5, 0)) == NULL) {
 		perror("createFile f1");
 		return 1;
 	}
@@ -262,11 +263,6 @@ int main(int argc, char *argv[]) {
 	}
 
 	printf("queue len = %ld (dovrebbe essere 2)\n", queue->len);
-
-	if (printQueue(queue) == -1) {
-		perror("printQueue");
-		return 1;
-	}
 
 	fileT *dequeueF;
 	dequeueF = dequeue(queue);
@@ -282,6 +278,11 @@ int main(int argc, char *argv[]) {
 
 	free(buffer);
 	free(buf1);
+
+	if (printQueue(queue) == -1) {
+		perror("printQueue");
+		return 1;
+	}
 	printf("FINE TEST QUEUE\n");
 	//return 0;
 
@@ -671,14 +672,16 @@ int parser(char *command, queueT *queue, long fd_c) {
 	return 0;
 }
 
-void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
+void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	void *res = malloc(BUFSIZE);
-	char er[3] = "er";
-	memcpy(res, er, 3);
+	char ok[3] = "ok";
+	memcpy(res, ok, 3);
 	fileT *espulso = NULL;
 
-	if (!pathname || flags < 0 || flags > 3) {
+	if (!filepath || flags < 0 || flags > 3) {
 		errno = EINVAL;
+		char er[3] = "er";
+		memcpy(res, er, 3);
 		goto send;
 	}
 
@@ -700,7 +703,7 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 
 	// cerco se il file è presente nel server
 	fileT *findF = NULL;
-	findF = find(queue, pathname);
+	findF = find(queue, filepath);
 	if (findF != NULL) {
 		found = 1;
 	}
@@ -712,17 +715,19 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	// se il client richiede di creare un file che esiste già, errore
 	if (O_CREATE && found) {
 		errno = EEXIST;
+		char er[3] = "er";
+		memcpy(res, er, 3);
 		goto send;
 	}
 	
 	// se il client cerca di aprire un file inesistente, errore
-	if (!O_CREATE && !found) {
+	else if (!O_CREATE && !found) {
 		errno = ENOENT;
 		goto send;
 	}
 
 	// il client vuole creare il file
-	if (O_CREATE && !found) {
+	else if (O_CREATE && !found) {
 		// se la coda è piena, espelli un file secondo la politica FIFO
 		if (queue->len == queue->maxLen) {
 			printf("OpenFile: coda piena (queue->len = %ld), espello un elemento.\n", queue->len);
@@ -738,14 +743,8 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 			memcpy(res, es, 3);
 		}
 
-		// coda non piena, tutto ok
-		else {
-			char ok[3] = "ok";
-			memcpy(res, ok, 3);
-		}
-
 		// crea il file come richiesto dal client
-		fileT *f = createFile(pathname, O_LOCK, fd_c);
+		fileT *f = createFile(filepath, O_LOCK, fd_c, 1);
 
 		if (f == NULL) {
 			perror("createFile");
@@ -755,6 +754,15 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 
 		else if (enqueue(queue, f) != 0) {
 			perror("enqueue");
+			char es[3] = "er";
+			memcpy(res, es, 3);
+		}
+	}
+
+	// il client vuole aprire un file gia' esistente
+	else {
+		if (openFileInQueue(queue, filepath, O_LOCK, fd_c) == -1) {
+			perror("openFileInQueue");
 			char es[3] = "er";
 			memcpy(res, es, 3);
 		}

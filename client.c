@@ -61,10 +61,39 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if (openFile("fileNuovo3", 1) == -1) {
+	/*
+	printf("INIZIO TEST OPENFILE\n");
+	printf("Creo un file non lockato. Dovrebbe dare OK.\n");
+	if (openFile("fileNONLOCKED", 1) == -1) {
 		perror("openFile");
-		return -1;
 	}
+
+	printf("Creo un file lockato. Dovrebbe dare OK.\n");
+	if (openFile("fileLOCKED", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo un file gia' esistente. Dovrebbe dare ER.\n");
+	if (openFile("test/file2.txt", 1) == -1) {
+		perror("openFile");
+	}
+
+	printf("Apro un file che esiste ma e' lockato da un client diverso. Dovrebbe dare ER.\n");
+	if (openFile("test/file2.txt", 2) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo un file ma la coda e' piena. Dovrebbe dare ES.\n");
+	if (openFile("fileLOCKED2", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("Apro un file che esiste e non e' lockato. Dovrebbe dare OK.\n");
+	if (openFile("fileNONLOCKED", 2) == -1) {
+		perror("openFile");
+	}
+	printf("FINE TEST OPENFILE\n");
+	*/
 
 	/*
 	strncpy(sa.sun_path, SOCKNAME, UNIX_PATH_MAX);

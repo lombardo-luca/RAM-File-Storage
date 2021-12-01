@@ -1,11 +1,9 @@
-#define MAX_OPENED_BY 5     // numero di utenti massimo che possono aprire contemporaneamente un file
-
 // struttura dati per gestire i file in memoria principale
 typedef struct {
     char *filepath;     // path assoluto del file
-    int O_LOCK;         // se = 1, il file e' in modalità locked
+    int O_LOCK;         // se = 1, il file e' in modalita' locked
     int owner;          // se O_LOCK = 1, contiene il file descriptor del client che ha richiesto l'operazione di lock
-    int openedBy[MAX_OPENED_BY];     // array che contiene i file descriptors di ogni client che ha accesso al file   
+    int open;           // ae = 1, indica che il file e' stato aperto in lettura/scrittura 
     void *content;      // contenuto del file
     size_t size;        // dimensione del file in bytes
 } fileT;
@@ -46,11 +44,12 @@ typedef struct {
 /**
  * Alloca ed inizializza un fileT.
  * \param filepath -> stringa che identifica il path assoluto del fileT
- * \param O_LOCK -> se 1, crea il fileT modalità locked
+ * \param O_LOCK -> se = 1, crea il fileT modalità locked, se = 0 no
  * \param owner -> file descriptor del client che ha richiesto la modalità locked
+ * \param open -> se = 1, apre il file immediatamente dopo averlo creato, se = 0 no
  * \retval -> puntatore al fileT creato, NULL se errore (setta errno)
  */
-fileT* createFile(char *filepath, int O_LOCK, int owner);
+fileT* createFile(char *filepath, int O_LOCK, int owner, int open);
 
 /**
  * Scrive del contenuto su un fileT creato con createFile. L'operazione di scrittura avviene sempre in append.
@@ -104,13 +103,23 @@ int enqueue(queueT *queue, fileT* data);
 int printQueue(queueT *queue);
 
 /**
- * Imposta un fileT all'interno di una coda in modalità locked.
+ * Imposta un fileT all'interno della in modalita' locked.
  * \param queue -> puntatore alla coda che contiene il fileT
- * \param filepath -> path assoluto (identificatore) del fileT su cui impostare la modalità locked
+ * \param filepath -> path assoluto (identificatore) del fileT su cui impostare la modalita' locked
  * \param owner -> file descriptor del client che ha richiesto l'operazione di lock
  * \retval -> 0 se successo, -1 se errore (setta errno)
  */
 int lockFileInQueue(queueT *queue, char *filepath, int owner);
+
+/**
+ * Apre un fileT all'interno della coda. Fallisce se il file e' stato messo in modalita' locked da un client diverso.
+ * \param queue -> puntatore alla coda che contiene il fileT
+ * \param filepath -> path assoluto (identificatore) del fileT da aprire
+ * \param O_LOCK -> se = 1, il file viene aperto in modalita' locked, se = 0 no
+ * \param client -> file descriptor del client che ha richiesto l'apertura
+ * \retval -> 0 se successo, -1 se errore (setta errno)
+ */
+int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client);
 
 /**
  * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore).
