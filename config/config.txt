@@ -1,5 +1,5 @@
 threadpoolSize:4
 sockName:mysock
-maxFiles:2
+maxFiles:3
 maxSize:50
 logFile:logs

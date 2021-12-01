@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if (openFile("fileNuovo", 1) == -1) {
+	if (openFile("fileNuovo3", 1) == -1) {
 		perror("openFile");
 		return -1;
 	}

@@ -57,9 +57,11 @@ int writeFile(fileT *f, void *content, size_t size) {
         return -1;
     }
 
-    if ((f->content = realloc(f->content, f->size + size)) == NULL) {
-        perror("Malloc content");
-        return -1;
+    if (size != 0) {
+        if ((f->content = realloc(f->content, f->size + size)) == NULL) {
+            perror("Malloc content");
+            return -1;
+        } 
     }
 
     // scrittura in append

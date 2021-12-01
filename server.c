@@ -699,7 +699,8 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	}
 
 	// cerco se il file è presente nel server
-	fileT *findF = find(queue, pathname);
+	fileT *findF = NULL;
+	findF = find(queue, pathname);
 	if (findF != NULL) {
 		found = 1;
 	}
