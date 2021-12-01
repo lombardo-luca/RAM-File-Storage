@@ -219,11 +219,11 @@ int main(int argc, char *argv[]) {
 	}
 
 	// creo la coda di file
-	queueT *queue = createQueue(maxFiles+1, maxSize);
+	queueT *queue = createQueue(maxFiles, maxSize);
 
 	printf("TEST QUEUE\n");
 	void *buf1 = malloc(256);
-	fileT *f1;
+	fileT *f1, *f2;
 	char str1[256] = "contenutofile1";
 	memcpy(buf1, str1, 15);
 	 
@@ -244,102 +244,45 @@ int main(int argc, char *argv[]) {
 
 	printf("queue len = %ld\n", queue->len);
 
-	if (push(queue, f1) != 0) {
-		perror("push f1");
+	if (enqueue(queue, f1) != 0) {
+		perror("enqueue f1");
 		return 1;
 	}
 
-	fileT *popF;
-	popF = pop(queue);
+	printf("queue len = %ld (dovrebbe essere 1)\n", queue->len);
 
-	if (popF == NULL) {
-		printf("ERRORE??\n");
-	}
-
-	printf("queue len = %ld\n", queue->len);
-
-	if (push(queue, f1) != 0) {
-		perror("push f1");
+	if ((f2 = createFile("test/file2.txt", 0, 0)) == NULL) {
+		perror("createFile f1");
 		return 1;
 	}
 
-	printf("queue len = %ld\n", queue->len);
+	if (enqueue(queue, f2) != 0) {
+		perror("enqueue f2");
+		return 1;
+	}
 
-	//destroyFile(popF);
+	printf("queue len = %ld (dovrebbe essere 2)\n", queue->len);
+
+	if (printQueue(queue) == -1) {
+		perror("printQueue");
+		return 1;
+	}
+
+	fileT *dequeueF;
+	dequeueF = dequeue(queue);
+
+	if (dequeueF == NULL) {
+		printf("ERRORE??1\n");
+	}
+
+	destroyFile(dequeueF);
+
+	//voiDequeue(queue);
+	//voiDequeue(queue);
 
 	free(buffer);
 	free(buf1);
 	printf("FINE TEST QUEUE\n");
-
-	/*
-	ipf = fopen("test/file2.txt", "rb");
-	int r2 = fread(buffer, 1, 256, ipf);  
-	fclose(ipf);
-	printf("Bytes letti: %d\n", r2);
-
-	if (writeFile(f1, buffer, r2) == -1) {
-		perror("writeFile f1");
-		return 1;
-	}	
-
-	free(buffer);
-
-	if (push(queue, f2) != 0) {
-		perror("push f2");
-		return 1;
-	}
-
-	fileT *ff1;
-
-	if ((ff1 = find(queue, "test/file1.txt")) == NULL) {
-		printf("file non trovato\n");
-	}
-
-	else {
-		printf("file trovato\n");
-	}
-
-	printf("TEST SCRITTURA SU FILE\n");
-    FILE* opf = fopen("testscrittura.txt", "w");
-    printf("Voglio scrivere %ld bytes\n", ff1->size);
-    fwrite(ff1->content, 1, ff1->size, opf);
-    fclose(opf);
-    printf("FINE TEST SCRITTURA SU FILE\n");
-
-	fileT *f3 = pop(queue);
-	for (int j = 0; j < 1; j++) {
-		if (f3 == NULL) {
-			perror("pop");
-			return 1;
-		}
-
-		else {
-			printf("ho rimosso il file %s\n", f3->filepath);
-		}
-	}
-
-	fileT *ff2;
-
-	if ((ff2 = find(queue, "test/file1.txt")) == NULL) {
-		printf("file non trovato\n");
-	}
-
-	else {
-		printf("file trovato\n");
-	}
-
-	//free(buf1);
-	//free(buf2);
-
-	//free(f1);
-	//free(f2);
-
-	//destroyFile(f3);
-	//destroyFile(ff1);
-	//destroyFile(ff2);
-
-	printf("FINE TEST QUEUE\n");
-	*/
 	//return 0;
 
 	// creo la threadpool
@@ -756,12 +699,12 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	}
 
 	// cerco se il file è presente nel server
-	fileT *f = find(queue, pathname);
-	if (f != NULL) {
+	fileT *findF = find(queue, pathname);
+	if (findF != NULL) {
 		found = 1;
 	}
 
-	destroyFile(f);
+	destroyFile(findF);
 
 	printf("OpenFile: found = %d\n", found);
 
@@ -780,41 +723,41 @@ void openFile(char *pathname, int flags, queueT* queue, long fd_c) {
 	// il client vuole creare il file
 	if (O_CREATE && !found) {
 		// se la coda è piena, espelli un file secondo la politica FIFO
-		if (queue->len == queue->maxLen-1) {
-			espulso = pop(queue);
+		if (queue->len == queue->maxLen) {
+			printf("OpenFile: coda piena (queue->len = %ld), espello un elemento.\n", queue->len);
+			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
-				perror("pop");
+				perror("dequeue");
 
 				goto send;
 			}
+
+			char es[3] = "es";
+			memcpy(res, es, 3);
+		}
+
+		// coda non piena, tutto ok
+		else {
+			char ok[3] = "ok";
+			memcpy(res, ok, 3);
 		}
 
 		// crea il file come richiesto dal client
 		fileT *f = createFile(pathname, O_LOCK, fd_c);
 
-		printf("La dimensione della coda attualmente e' %ld\n", queue->len);
-
 		if (f == NULL) {
 			perror("createFile");
-			goto send;
+			char es[3] = "er";
+			memcpy(res, es, 3);
 		}
 
-		else if (push(queue, f) != 0) {
-			perror("push");
-			goto send;
+		else if (enqueue(queue, f) != 0) {
+			perror("enqueue");
+			char es[3] = "er";
+			memcpy(res, es, 3);
 		}
-
-		printf("sono arrivato qui alfabeto\n");
-
-		char es[3] = "es";
-		memcpy(res, es, 3);
-
-		goto send;
 	}
-
-	char ok[3] = "ok";
-	memcpy(res, ok, 3);
 
 	// invia risposta al client
 	send: {

@@ -1,15 +1,33 @@
 #define MAX_OPENED_BY 5     // numero di utenti massimo che possono aprire contemporaneamente un file
 
-// struttura dati per gestire i file in memoria
+// struttura dati per gestire i file in memoria principale
 typedef struct {
-    char* filepath;     // path assoluto del file
-    int O_LOCK;         // flag per la modalità locked
-    int owner;          // file descriptor del client che ha richiesto l'operazione di lock sul file
+    char *filepath;     // path assoluto del file
+    int O_LOCK;         // se = 1, il file e' in modalità locked
+    int owner;          // se O_LOCK = 1, contiene il file descriptor del client che ha richiesto l'operazione di lock
     int openedBy[MAX_OPENED_BY];     // array che contiene i file descriptors di ogni client che ha accesso al file   
     void *content;      // contenuto del file
     size_t size;        // dimensione del file in bytes
 } fileT;
 
+// nodo di una linked list
+typedef struct node {
+    fileT *data;
+    struct node *next;
+} nodeT;
+
+// coda FIFO di fileT, implementata come una linked list
+typedef struct {
+    nodeT *head;        // puntatore al primo elemento della coda
+    nodeT *tail;        // puntatore all'ultimo elemento della coda
+    size_t maxLen;      // numero massimo di elementi supportati nella coda
+    size_t len;         // numero attuale di elementi nella coda (< maxLen)
+    size_t maxSize;     // dimensione massima degli elementi nella coda
+    size_t size;        // somma delle dimensioni degli elementi presenti in coda (<= maxSize)       
+    pthread_mutex_t m;
+} queueT;
+
+/*
 // coda FIFO di fileT. E' vuota quando head == tail, quindi può contenere al massimo maxLen-1 elementi.
 typedef struct {
     size_t head;
@@ -23,6 +41,7 @@ typedef struct {
     //pthread_cond_t full;
     //pthread_cond_t empty;
 } queueT;
+*/
 
 /**
  * Alloca ed inizializza un fileT.
@@ -38,7 +57,7 @@ fileT* createFile(char *filepath, int O_LOCK, int owner);
  * \param f -> fileT sul quale scrivere
  * \param content -> contenuto da scrivere
  * \size -> dimensione in bytes del contenuto da scrivere
- * \retval -> 1 se successo, 0 se errore (setta errno)
+ * \retval -> 0 se successo, -1 se errore (setta errno)
  */
 int writeFile(fileT *f, void *content, size_t size) ;
 
@@ -58,18 +77,40 @@ queueT* createQueue(size_t maxLen, size_t maxSize);
 
 /**
  * Estrae un fileT dalla coda.
- * \param queue -> puntatore alla coda dalla quale leggere
+ * \param queue -> puntatore alla coda dalla quale estrarre il fileT
  * \retval -> puntatore al file estratto, NULL se errore
  */
-fileT* pop(queueT *queue);
+fileT* dequeue(queueT *queue);
+
+/**
+ *  Come la dequeue, ma non restituisce il fileT estratto.
+ * \param queue -> puntatore alla coda dalla quale estrarre il fileT
+*/
+void voiDequeue(queueT *queue);
 
 /**
  * Inserisce un fileT nella coda. 
- * \param queue -> puntatore alla coda sulla quale scrivere
+ * \param queue -> puntatore alla coda nella quale inserire il fileT
  * \param data -> puntatore al fileT da inserire
  * \retval -> 0 se successo, -1 se errore (setta errno)  
  */
-int push(queueT *queue, fileT* data);
+int enqueue(queueT *queue, fileT* data);
+
+/**
+ * Stampa su standard output l'intero contenuto della coda.
+ * \param queue -> puntatore alla coda da stampare
+ * \retval -> 0 se successo, -1 se errore (setta errno)
+ */
+int printQueue(queueT *queue);
+
+/**
+ * Imposta un fileT all'interno di una coda in modalità locked.
+ * \param queue -> puntatore alla coda che contiene il fileT
+ * \param filepath -> path assoluto (identificatore) del fileT su cui impostare la modalità locked
+ * \param owner -> file descriptor del client che ha richiesto l'operazione di lock
+ * \retval -> 0 se successo, -1 se errore (setta errno)
+ */
+int lockFileInQueue(queueT *queue, char *filepath, int owner);
 
 /**
  * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore).
@@ -78,11 +119,6 @@ int push(queueT *queue, fileT* data);
  * \retval -> puntatore al fileT trovato, NULL se non trovato o errore (setta errno)
  */
 fileT* find(queueT *queue, char *filepath);
-
-/**
- * 
- */
-int lockFile(queueT *queue, char *filepath, int owner);
 
 /**
  * Restituisce la lunghezza attuale della coda (ovvero il numero di elementi presenti).
@@ -100,13 +136,13 @@ size_t getSize(queueT *queue);
 
 /**
  * Cancella una coda allocata con createQueue. Dev'essere chiamata da un solo thread. 
- * Chiama al suo interno la destroyFile su ogni elemento della coda.
+ * Chiama al suo interno la destroyFile su ogni elemento della coda e successivamente la cleanupQueue.
  * \param queue -> puntatore alla coda da distruggere
  */
 void destroyQueue(queueT *queue);
 
 /**
- * Come la destroyQueue, ma non chiama la destroyFile sugli elementi della coda.
- * \param queue -> puntatore alla coda da cancellare
+ * Funzione di pulizia ausiliaria che libera la memoria allocata da una coda. Da usare solo su code vuote.
+ * \param queue -> puntatore alla coda da ripulire
 */
 void cleanupQueue(queueT *queue);
