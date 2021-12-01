@@ -313,6 +313,15 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner) {
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             found = 1;
 
+            printf("LOCKFILE: locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, owner);
+
+            // se il file e' stato messo in modalita' locked da un client diverso, errore
+            if ((temp->data)->O_LOCK && (temp->data)->owner != owner) {
+                errno = EPERM;
+                pthread_mutex_unlock(&queue->m);
+                return -1;
+            }
+
             // imposta flag e owner
             (temp->data)->O_LOCK = 1;
             (temp->data)->owner = owner;

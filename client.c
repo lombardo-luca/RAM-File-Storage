@@ -33,10 +33,15 @@ int main(int argc, char* argv[]) {
 
 	strncpy(sock, SOCKNAME, 9);
 
+	struct timespec tim1, tim2;
+	tim1.tv_sec = 0;
+	tim1.tv_nsec = 0;
 	int opt;
-	int f = 0;
+	int f = 0, sec = 0;
+	double msec = 0;
+	long num = 0;
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hf:")) != -1) {
+	while ((opt = getopt(argc, argv, "hf:t:")) != -1) {
 		switch (opt) {
 			case 'h':
 				printf("Ecco tutte le opzioni accettate ecc... TO-DO\n");
@@ -56,12 +61,30 @@ int main(int argc, char* argv[]) {
 				}
 
 				break;
+			case 't':
+				
+				num = strtol(optarg, NULL, 0);
+				if (num > 1000) {
+					sec = num/1000;
+					msec = num % 1000;
+				}
+				
+				else {
+					msec = num;
+				}
+
+				tim1.tv_sec = sec;
+				tim1.tv_nsec = msec * 1000000;
+				printf("DEBUG: secondi = %ld nanosec = %ld\n", tim1.tv_sec, tim1.tv_nsec);
+				break;
 			case '?': default:
 				break;
 		}
+
+		// attento prima di mandare la prossima richiesta al server
+		nanosleep(&tim1, &tim2);
 	}
 
-	/*
 	printf("INIZIO TEST OPENFILE\n");
 	printf("Creo un file non lockato. Dovrebbe dare OK.\n");
 	if (openFile("fileNONLOCKED", 1) == -1) {
@@ -93,8 +116,7 @@ int main(int argc, char* argv[]) {
 		perror("openFile");
 	}
 	printf("FINE TEST OPENFILE\n");
-	*/
-
+	
 	/*
 	strncpy(sa.sun_path, SOCKNAME, UNIX_PATH_MAX);
 	sa.sun_family = AF_UNIX;
