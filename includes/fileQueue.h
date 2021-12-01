@@ -49,19 +49,19 @@ typedef struct {
  * \param open -> se = 1, apre il file immediatamente dopo averlo creato, se = 0 no
  * \retval -> puntatore al fileT creato, NULL se errore (setta errno)
  */
-fileT* createFile(char *filepath, int O_LOCK, int owner, int open);
+fileT* createFileT(char *filepath, int O_LOCK, int owner, int open);
 
 /**
- * Scrive del contenuto su un fileT creato con createFile. L'operazione di scrittura avviene sempre in append.
+ * Scrive del contenuto su un fileT creato con createFileT. L'operazione di scrittura avviene sempre in append.
  * \param f -> fileT sul quale scrivere
  * \param content -> contenuto da scrivere
  * \size -> dimensione in bytes del contenuto da scrivere
  * \retval -> 0 se successo, -1 se errore (setta errno)
  */
-int writeFile(fileT *f, void *content, size_t size) ;
+int writeFileT(fileT *f, void *content, size_t size) ;
 
 /**
- * Cancella un fileT creato con createFile e ne libera la memoria.
+ * Cancella un fileT creato con createFileT e ne libera la memoria.
  * \param f -> fileT da cancellare
 */
 void destroyFile(fileT *f);

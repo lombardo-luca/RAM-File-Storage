@@ -16,8 +16,15 @@
 #define CMDSIZE 256
 #define BUFSIZE 256
 
-static char socketName[SOCKNAME_MAX] = "";
-static int fd_skt;
+static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
+static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
+
+/**
+ * lastOp = 1 se e solo se l'ultima operazione e' stata una openFile terminata con successo.
+ * Se lastOp = 1, openedFile contiene il filepath del file attualmente aperto. 
+ */
+//static int lastOp = 0;
+static char openedFile[256] = "";	
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
 	// controllo la validità dei parametri
@@ -64,6 +71,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	// copio il nome del socket nella variabile globale
 	strncpy(socketName, sockname, SOCKNAME_MAX);
 
+	//lastOp = 0;
 	return 0;
 }
 
@@ -83,6 +91,7 @@ int closeConnection(const char* sockname) {
 	// resetto la variabile globale che mantiene il nome del socket
 	strncpy(socketName, "", SOCKNAME_MAX);
 
+	//lastOp = 0;
 	return 0;
 }
 
@@ -111,16 +120,16 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
-	printf("DEBUG api: invio %s!\n", cmd);
+	printf("openFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
+	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
-	// ricevo la risposta dal server
 	if (r == -1 || r == 0) {
 		free(buf);
 		errno = EREMOTEIO;
@@ -130,7 +139,7 @@ int openFile(const char* pathname, int flags) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	printf("Ho ricevuto: %s!\n", res);
+	printf("openFile: ho ricevuto: %s!\n", res);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -151,55 +160,119 @@ int openFile(const char* pathname, int flags) {
 
 	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
 	else if (strcmp(res, "es") == 0) {
-		memset(buf, 0, BUFSIZE);
-		char filepath[BUFSIZE];
-		size_t size;
-		void *content = NULL;
 
-		// ricevo prima il filepath...
-		if ((readn(fd_skt, buf, BUFSIZE)) == -1) {
-			free(buf);
-			errno = EREMOTEIO;
+		if (receiveFile(NULL) == -1) {
 			return -1;
 		}
-
-		strncpy(filepath, buf, BUFSIZE);
-		printf("Ho ricevuto filepath = %s\n", filepath);
-
-		// ...poi la dimensione del file...
-		memset(buf, 0, BUFSIZE);
-		if ((readn(fd_skt, buf, sizeof(size_t))) == -1) {
-			free(buf);
-			errno = EREMOTEIO;
-			return -1;
-		}
-
-		memcpy(&size, buf, sizeof(size_t));
-		printf("Ho ricevuto size = %ld\n", size);
-
-		content = malloc(size);
-
-		// ...e infine il contenuto
-		if ((readn(fd_skt, content, size)) == -1) {
-			free(buf);
-			free(content);
-			errno = EREMOTEIO;
-			return -1;
-		}
-
-		printf("Ho ricevuto il contenuto!\n");
-
-		printf("TEST SCRITTURA SU FILE\n");
-	    FILE* opf = fopen("testscritturaCLIENT", "w");
-	    printf("Voglio scrivere %ld bytes\n", size);
-	    fwrite(content, 1, size, opf);
-	    fclose(opf);
-	    printf("FINE TEST SCRITTURA SU FILE\n");
-
-		free(content);
 	}
 
 	free(buf);
 	
+	// tengo traccia del file aperto
+	//lastOp = 1;
+	strncpy(openedFile, pathname, strlen(pathname)+1);
+
+	return 0;
+}
+
+int writeFile(const char* pathname, const char* dirname) {
+	// controllo la validità degli argomenti
+	if (!pathname || strlen(pathname) >= BUFSIZE) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
+	if (strcmp(openedFile, pathname) != 0) {
+		errno = EPERM;
+		return -1;
+	}
+
+	char cmd[CMDSIZE] = "";
+
+	// preparo il comando da inviare al server in formato writeFile:pathname
+	memset(cmd, '\0', CMDSIZE);
+	strncpy(cmd, "writeFile:", 11);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+
+	// invio il comando al server
+	printf("writeFile: invio %s!\n", cmd);
+
+	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	// ricevo la risposta dal server
+	void *buf = malloc(BUFSIZE);
+	int r = readn(fd_skt, buf, 3);
+	if (r == -1 || r == 0) {
+		free(buf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, buf, 3);
+
+	printf("writeFile: ho ricevuto: %s!\n", res);
+
+	// TO-DO
+
+	//lastOp = 0;
+	return 0;
+}
+
+// funzione di appoggio che riceve un file dal server
+int receiveFile(char *dirname) {
+	void *buf = malloc(BUFSIZE);
+	memset(buf, 0, BUFSIZE);
+	char filepath[BUFSIZE];
+	size_t size;
+	void *content = NULL;
+
+	// ricevo prima il filepath...
+	if ((readn(fd_skt, buf, BUFSIZE)) == -1) {
+		free(buf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	strncpy(filepath, buf, BUFSIZE);
+	printf("Ho ricevuto filepath = %s\n", filepath);
+
+	// ...poi la dimensione del file...
+	memset(buf, 0, BUFSIZE);
+	if ((readn(fd_skt, buf, sizeof(size_t))) == -1) {
+		free(buf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	memcpy(&size, buf, sizeof(size_t));
+	printf("Ho ricevuto size = %ld\n", size);
+
+	content = malloc(size);
+
+	// ...e infine il contenuto
+	if ((readn(fd_skt, content, size)) == -1) {
+		free(buf);
+		free(content);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	printf("Ho ricevuto il contenuto!\n");
+
+	printf("TEST SCRITTURA SU FILE\n");
+    FILE* opf = fopen("testscritturaCLIENT", "w");
+    printf("Voglio scrivere %ld bytes\n", size);
+    fwrite(content, 1, size, opf);
+    fclose(opf);
+    printf("FINE TEST SCRITTURA SU FILE\n");
+
+	free(content);
+	free(buf);
+
 	return 0;
 }

@@ -17,6 +17,7 @@
 #define BUFSIZE 256
 
 int cmd_f(char* socket);
+int cmd_W(char *filelist);
 
 int main(int argc, char* argv[]) {
 	//char buf[BUFSIZE] = "";
@@ -41,18 +42,21 @@ int main(int argc, char* argv[]) {
 	double msec = 0;
 	long num = 0;
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hf:t:")) != -1) {
+	while ((opt = getopt(argc, argv, "hf:t:W:")) != -1) {
 		switch (opt) {
+			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
 				printf("Ecco tutte le opzioni accettate ecc... TO-DO\n");
 				return 0;
+
+			// specifica il nome del socket AF_UNIX a cui connettersi
 			case 'f':
 				if (f) {
 					printf("Il comando -f puo' essere usato solo una volta.\n");
 					break;
 				}
 
-				printf("DEBUG Nome socket: %s\n", optarg);
+				printf("DEBUG: Nome socket: %s\n", optarg);
 				strncpy(sock, optarg, strlen(optarg)+1);
 				f = 1;
 
@@ -61,9 +65,12 @@ int main(int argc, char* argv[]) {
 				}
 
 				break;
+
+			// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
 			case 't':
-				
 				num = strtol(optarg, NULL, 0);
+
+				// converto i msec inseriti dall'utente in secondi e nanosecondi per la nanosleep
 				if (num > 1000) {
 					sec = num/1000;
 					msec = num % 1000;
@@ -77,6 +84,18 @@ int main(int argc, char* argv[]) {
 				tim1.tv_nsec = msec * 1000000;
 				printf("DEBUG: secondi = %ld nanosec = %ld\n", tim1.tv_sec, tim1.tv_nsec);
 				break;
+
+			// lista di nomi di file da scrivere nel server separati da virgole
+			case 'W':
+				printf("DEBUG: lista file da scrivere: %s\n", optarg);
+
+				if (cmd_W(optarg) != 0) {
+					printf("Errore nell'esecuzione del comando -W\n");
+				}
+
+				break;
+
+			// argomento non riconosciuto
 			case '?': default:
 				break;
 		}
@@ -140,7 +159,7 @@ int main(int argc, char* argv[]) {
 		cmp = strcmp(cmd, "quit\n");
 
 		if (!cmp) {
-			close(fd_skt);	// chiudo la connessione al server ed esco dal ciclos
+			close(fd_skt);	// chiudo la connessione al server ed esco dal ciclo
 			break;
 		}
 
@@ -171,6 +190,22 @@ int cmd_f(char* socket) {
 	else {
 		printf("cmd_f: connessione avvenuta con successo.\n");
 	}
+
+	return 0;
+}
+
+int cmd_W(char *filelist) {
+	// parso la lista di file da scrivere
+	char *token = NULL, *save = NULL;
+	token = strtok_r(filelist, ",", &save);
+
+	while (token != NULL) {
+		printf("File: %s\n", token);
+
+		token = strtok_r(NULL, ",", &save);
+	}
+
+	// TO-DO
 
 	return 0;
 }

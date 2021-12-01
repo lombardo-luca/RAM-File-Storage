@@ -32,6 +32,7 @@ static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
 int parser(char *command, queueT *queue, long fd_c);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c);
+void writeFile(char *filepath, queueT* queue, long fd_c);
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -233,13 +234,13 @@ int main(int argc, char *argv[]) {
     int r = fread(buffer, 1, 256, ipf);
     fclose(ipf);
 
-	if ((f1 = createFile("test/file1.txt", 0, 0, 0)) == NULL) {
-		perror("createFile f1");
+	if ((f1 = createFileT("test/file1.txt", 0, 0, 0)) == NULL) {
+		perror("createFileT f1");
 		return 1;
 	}
 
-	if (writeFile(f1, buffer, r) == -1) {
-		perror("writeFile f1");
+	if (writeFileT(f1, buffer, r) == -1) {
+		perror("writeFileT f1");
 		return 1;
 	}	
 
@@ -252,8 +253,8 @@ int main(int argc, char *argv[]) {
 
 	printf("queue len = %ld (dovrebbe essere 1)\n", queue->len);
 
-	if ((f2 = createFile("test/file2.txt", 1, 5, 0)) == NULL) {
-		perror("createFile f1");
+	if ((f2 = createFileT("test/file2.txt", 1, 5, 0)) == NULL) {
+		perror("createFileT f1");
 		return 1;
 	}
 
@@ -662,6 +663,12 @@ int parser(char *command, queueT *queue, long fd_c) {
 		openFile(token2, arg, queue, fd_c);
 	}
 
+	else if (strcmp(token, "writeFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+
+		writeFile(token2, queue, fd_c);
+	}
+
 	// comando non riconosciuto
 	else {
 		printf("PARSER: comando non riconosciuto.\n");
@@ -744,10 +751,10 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 		}
 
 		// crea il file come richiesto dal client
-		fileT *f = createFile(filepath, O_LOCK, fd_c, 1);
+		fileT *f = createFileT(filepath, O_LOCK, fd_c, 1);
 
 		if (f == NULL) {
-			perror("createFile");
+			perror("createFileT");
 			char es[3] = "er";
 			memcpy(res, es, 3);
 		}
@@ -817,9 +824,14 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 		free(buf);
 	}
 
+	// libera la memoria
 	if (espulso) {
 		destroyFile(espulso);
 	}
 
 	free(res);
+}
+
+void writeFile(char *filepath, queueT* queue, long fd_c) {
+	// TO-DO
 }

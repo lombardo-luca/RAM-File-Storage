@@ -34,3 +34,14 @@ int closeConnection(const char* sockname);
  *        = 3 -> O_CREATE && O_LOCK
  */
 int openFile(const char* pathname, int flags);
+
+/**
+ * Scrive tutto il file puntato da pathname nel file server. Ritorna successo solo se la precedente operazione,
+ * terminata con successo, è stata openFile(pathname, O_CREATE| O_LOCK). Se ‘dirname’ è diverso da NULL, 
+ * il file eventualmente spedito dal server perche' espulso dalla cache per far posto al file "pathname" dovra' essere
+ * scritto in ‘dirname’; ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
+*/
+int writeFile(const char* pathname, const char* dirname);
+
+// funzione di appoggio che riceve un file dal server
+int receiveFile(char *dirname);

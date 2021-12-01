@@ -9,7 +9,7 @@
 
 #include <fileQueue.h>
 
-fileT* createFile(char *filepath, int O_LOCK, int owner, int open) {
+fileT* createFileT(char *filepath, int O_LOCK, int owner, int open) {
     // controllo la validità degli argomenti
     if (!filepath || O_LOCK < 0 || O_LOCK > 1 || open < 0 || open > 1) {
         errno = EINVAL;
@@ -20,7 +20,7 @@ fileT* createFile(char *filepath, int O_LOCK, int owner, int open) {
 
     // alloco la memoria
     if ((f = (fileT*) calloc(1, sizeof(fileT))) == NULL) {
-        perror("Calloc createFile");
+        perror("Calloc createFileT");
         return (fileT*) NULL;
     }
 
@@ -45,7 +45,7 @@ fileT* createFile(char *filepath, int O_LOCK, int owner, int open) {
     return f;
 }
 
-int writeFile(fileT *f, void *content, size_t size) {
+int writeFileT(fileT *f, void *content, size_t size) {
     // controllo la validità degli argomenti
     if (!f || !content || size < 0) {
         errno = EINVAL;
@@ -63,7 +63,7 @@ int writeFile(fileT *f, void *content, size_t size) {
     memcpy(f->content+f->size, content, size);
     f->size += (size);
 
-    //printf("writeFile: ho scritto il file %s, di dimensione %ld\n", f->filepath, f->size);
+    //printf("writeFileT: ho scritto il file %s, di dimensione %ld\n", f->filepath, f->size);
 
     return 0;
 }
@@ -222,15 +222,15 @@ fileT* dequeue(queueT *queue) {
     /*
     // creo una copia del primo elemento della coda (in modo da restituirlo come risultato) prima di rimuoverlo
     fileT *data = NULL;
-    data = createFile(((queue->head)->data)->filepath, ((queue->head)->data)->O_LOCK, ((queue->head)->data)->owner);
+    data = createFileT(((queue->head)->data)->filepath, ((queue->head)->data)->O_LOCK, ((queue->head)->data)->owner);
     if (data == NULL) {
-        perror("createFile");
+        perror("createFileT");
         pthread_mutex_unlock(&queue->m);
         return NULL;
     }
 
-    if (writeFile(data, ((queue->head)->data)->content, ((queue->head)->data)->size) == -1) {
-        perror("writeFile");
+    if (writeFileT(data, ((queue->head)->data)->content, ((queue->head)->data)->size) == -1) {
+        perror("writeFileT");
         pthread_mutex_unlock(&queue->m);
         return NULL;
     }
@@ -420,9 +420,9 @@ fileT* find(queueT *queue, char *filepath) {
             found = 1;
 
             // ...ne creo una copia e la restituisco
-            res = createFile((temp->data)->filepath, (temp->data)->O_LOCK, (temp->data)->owner, (temp->data)->open);
-            if (writeFile(res, (temp->data)->content, (temp->data)->size) == -1) {
-                perror("writeFile res");
+            res = createFileT((temp->data)->filepath, (temp->data)->O_LOCK, (temp->data)->owner, (temp->data)->open);
+            if (writeFileT(res, (temp->data)->content, (temp->data)->size) == -1) {
+                perror("writeFileT res");
                 pthread_mutex_unlock(&queue->m);
                 return NULL;
             }
