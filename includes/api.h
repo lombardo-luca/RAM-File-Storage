@@ -43,5 +43,5 @@ int openFile(const char* pathname, int flags);
 */
 int writeFile(const char* pathname, const char* dirname);
 
-// funzione di appoggio che riceve un file dal server
+// Funzione ausiliaria
 int receiveFile(char *dirname);

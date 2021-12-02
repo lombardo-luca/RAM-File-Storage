@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
 
 #include <api.h>
 #include <partialIO.h>
@@ -14,15 +15,14 @@
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME "./mysock"
 #define CMDSIZE 256
-#define BUFSIZE 256
+#define BUFSIZE 512
 
 int cmd_f(char* socket);
 int cmd_W(char *filelist);
 
 int main(int argc, char* argv[]) {
-	//char buf[BUFSIZE] = "";
-	//char cmd[CMDSIZE] = "";
 	char sock[256];
+	struct sigaction siga;
 
 	printf("File Storage Client avviato.\n");
 	fflush(stdout);
@@ -31,6 +31,14 @@ int main(int argc, char* argv[]) {
 		printf("Usage: ecc... Nessun argomento! TO-DO\n");
 		return -1;
 	}
+
+	// ignoro il segnale SIGPIPE
+	memset(&siga, 0, sizeof(siga));
+	siga.sa_handler = SIG_IGN;
+	if (sigaction(SIGPIPE, &siga, NULL) == -1) {
+		perror("sigaction.\n");
+		return 1;
+	} 
 
 	strncpy(sock, SOCKNAME, 9);
 
@@ -104,6 +112,7 @@ int main(int argc, char* argv[]) {
 		nanosleep(&tim1, &tim2);
 	}
 
+	/*
 	printf("INIZIO TEST OPENFILE\n");
 	printf("Creo un file non lockato. Dovrebbe dare OK.\n");
 	if (openFile("fileNONLOCKED", 1) == -1) {
@@ -135,41 +144,6 @@ int main(int argc, char* argv[]) {
 		perror("openFile");
 	}
 	printf("FINE TEST OPENFILE\n");
-	
-	/*
-	strncpy(sa.sun_path, SOCKNAME, UNIX_PATH_MAX);
-	sa.sun_family = AF_UNIX;
-
-	fd_skt = socket(AF_UNIX, SOCK_STREAM, 0);
-	while (connect(fd_skt, (struct sockaddr*) &sa, sizeof(sa)) == -1 ) {
-		if ((errno == ENOENT)) {
-			sleep(1); 
-		}
-	
-		else {
-			return 1;
-		} 
-	}
-
-	memset(cmd, '\0', CMDSIZE);
-	while (fgets(cmd, sizeof(cmd), stdin)) {
-		writen(fd_skt, cmd, strlen(cmd));
-
-		int cmp = 0;
-		cmp = strcmp(cmd, "quit\n");
-
-		if (!cmp) {
-			close(fd_skt);	// chiudo la connessione al server ed esco dal ciclo
-			break;
-		}
-
-		else {
-			readn(fd_skt, buf, BUFSIZE);
-			printf("Risultato: %s\n", buf);
-		}
-
-		memset(cmd, '\0', CMDSIZE);
-	}
 	*/
 
 	return 0;
@@ -200,7 +174,16 @@ int cmd_W(char *filelist) {
 	token = strtok_r(filelist, ",", &save);
 
 	while (token != NULL) {
-		printf("File: %s\n", token);
+		printf("cmd_w: file: %s\n", token);
+		if (openFile(token, 1) == -1) {
+			perror("openFile");
+			return -1;
+		}
+
+		if (writeFile(token, NULL) == -1) {
+			perror("writeFile");
+			return -1;
+		}
 
 		token = strtok_r(NULL, ",", &save);
 	}

@@ -14,7 +14,7 @@
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
 #define CMDSIZE 256
-#define BUFSIZE 256
+#define BUFSIZE 512
 
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
@@ -162,6 +162,7 @@ int openFile(const char* pathname, int flags) {
 	else if (strcmp(res, "es") == 0) {
 
 		if (receiveFile(NULL) == -1) {
+			free(buf);
 			return -1;
 		}
 	}
@@ -188,12 +189,31 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
+	void *buf = malloc(BUFSIZE);
+	void *content = malloc(BUFSIZE);
+	size_t size;
 	char cmd[CMDSIZE] = "";
 
-	// preparo il comando da inviare al server in formato writeFile:pathname
+	// leggo il file da scrivere sul server
+	FILE* ipf = NULL;
+	if ((ipf = fopen(pathname, "rb")) == NULL) {
+		perror("fopen");
+		free(buf);
+		return -1;
+	}
+
+	size = fread(content, 1, BUFSIZE, ipf);
+	printf("writeFile: ho letto %ld bytes\n", size);
+	fclose(ipf);
+
+	// preparo il comando da inviare al server in formato writeFile:pathname:size
 	memset(cmd, '\0', CMDSIZE);
 	strncpy(cmd, "writeFile:", 11);
 	strncat(cmd, pathname, strlen(pathname) + 1);
+	strncat(cmd, ":", 2);
+	char sizeStr[BUFSIZE];
+	snprintf(sizeStr, BUFSIZE, "%ld", size);
+	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
 	printf("writeFile: invio %s!\n", cmd);
@@ -204,7 +224,6 @@ int writeFile(const char* pathname, const char* dirname) {
 	}
 
 	// ricevo la risposta dal server
-	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
 		free(buf);
@@ -219,11 +238,12 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	// TO-DO
 
-	//lastOp = 0;
+	free(buf);
+	free(content);
 	return 0;
 }
 
-// funzione di appoggio che riceve un file dal server
+// funzione ausiliaria che riceve un file dal server
 int receiveFile(char *dirname) {
 	void *buf = malloc(BUFSIZE);
 	memset(buf, 0, BUFSIZE);

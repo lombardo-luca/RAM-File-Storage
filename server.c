@@ -18,7 +18,7 @@
 #include <partialIO.h>
 
 #define UNIX_PATH_MAX 108 
-#define BUFSIZE 256
+#define BUFSIZE 512
 #define CMDSIZE 256
 
 // struttura dati che contiene gli argomenti da passare ai worker threads
@@ -32,7 +32,10 @@ static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
 int parser(char *command, queueT *queue, long fd_c);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c);
-void writeFile(char *filepath, queueT* queue, long fd_c);
+void writeFile(char *filepath, size_t size, queueT* queue, long fd_c);
+
+// funzioni ausiliarie
+int sendFile(fileT *f, long fd_c);
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -572,21 +575,13 @@ static void serverThread(void *par) {
 		goto cleanup;
 	}
 
-	/*
-	char str[BUFSIZE] = "";
-	//write(fd_c, str, strlen(str));
-	writen(fd_c, str, BUFSIZE);
-	printf("SERVER THREAD: ho mandato %s\n\n", str);
-	fflush(stdout);
-	*/
-
-	memset(buf, '\0', BUFSIZE);
+	memset(buf, '\0', CMDSIZE);
 
 	writen(pipe, &fd_c, sizeof(int));	// comunico al manager che la richiesta è stata servita
 
 	// ripulisci la memoria
 	cleanup: {
-		printf("cleanup\n");
+		printf("cleanup SERVER THREAD\n");
 		if (args) {
 			free(args);
 		}
@@ -665,8 +660,10 @@ int parser(char *command, queueT *queue, long fd_c) {
 
 	else if (strcmp(token, "writeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
+		token3 = strtok_r(NULL, ":", &save);
+		size_t sz = (size_t) strtol(token3, NULL, 0);
 
-		writeFile(token2, queue, fd_c);
+		writeFile(token2, sz, queue, fd_c);
 	}
 
 	// comando non riconosciuto
@@ -681,13 +678,16 @@ int parser(char *command, queueT *queue, long fd_c) {
 
 void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	void *res = malloc(BUFSIZE);
-	char ok[3] = "ok";
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char es[3] = "es";		// - - - - - - - - - - - - - - - - - - -  se un file e' stato espulso dalla cache
+
 	memcpy(res, ok, 3);
 	fileT *espulso = NULL;
 
-	if (!filepath || flags < 0 || flags > 3) {
+	// controllo la validita' degli argomenti
+	if (!filepath || flags < 0 || flags > 3 || !queue) {
 		errno = EINVAL;
-		char er[3] = "er";
 		memcpy(res, er, 3);
 		goto send;
 	}
@@ -708,7 +708,7 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 		O_LOCK = 1;
 	}
 
-	// cerco se il file è presente nel server
+	// cerco se il file e' presente nel server
 	fileT *findF = NULL;
 	findF = find(queue, filepath);
 	if (findF != NULL) {
@@ -717,12 +717,11 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 
 	destroyFile(findF);
 
-	printf("OpenFile: found = %d\n", found);
+	printf("openFile: found = %d\n", found);
 
 	// se il client richiede di creare un file che esiste già, errore
 	if (O_CREATE && found) {
 		errno = EEXIST;
-		char er[3] = "er";
 		memcpy(res, er, 3);
 		goto send;
 	}
@@ -730,23 +729,24 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	// se il client cerca di aprire un file inesistente, errore
 	else if (!O_CREATE && !found) {
 		errno = ENOENT;
+		memcpy(res, er, 3);
 		goto send;
 	}
 
 	// il client vuole creare il file
 	else if (O_CREATE && !found) {
-		// se la coda è piena, espelli un file secondo la politica FIFO
+		// se la cache e' piena, espelli un file secondo la politica FIFO
 		if (queue->len == queue->maxLen) {
-			printf("OpenFile: coda piena (queue->len = %ld), espello un elemento.\n", queue->len);
+			printf("openFile: coda piena (queue->len = %ld), espello un elemento.\n", queue->len);
 			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
 				perror("dequeue");
-
+				memcpy(res, er, 3);
 				goto send;
 			}
 
-			char es[3] = "es";
+			
 			memcpy(res, es, 3);
 		}
 
@@ -755,14 +755,12 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 
 		if (f == NULL) {
 			perror("createFileT");
-			char es[3] = "er";
-			memcpy(res, es, 3);
+			memcpy(res, er, 3);
 		}
 
 		else if (enqueue(queue, f) != 0) {
 			perror("enqueue");
-			char es[3] = "er";
-			memcpy(res, es, 3);
+			memcpy(res, er, 3);
 		}
 	}
 
@@ -770,46 +768,26 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	else {
 		if (openFileInQueue(queue, filepath, O_LOCK, fd_c) == -1) {
 			perror("openFileInQueue");
-			char es[3] = "er";
-			memcpy(res, es, 3);
+			memcpy(res, er, 3);
 		}
 	}
 
 	// invia risposta al client
-	send: {
-		printf("OpenFile: mando risposta al client\n");
+	send:
+		printf("openFile: mando risposta al client\n");
 		void *buf = NULL;
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
 		if (writen(fd_c, buf, 3) == -1) {
 			perror("writen");
-			return;
+			goto cleanup;
 		}
 
 		// se un file è stato espulso dalla coda, lo invio al client
 		if (strcmp(res, "es") == 0) {
-			// invio prima il filepath...
-			printf("invio il filepath: %s\n", espulso->filepath);
-			memset(buf, 0, BUFSIZE);
-			memcpy(buf, espulso->filepath, strlen(espulso->filepath)+1);
-			printf("memcpy fatta\n");
-			if (writen(fd_c, buf, BUFSIZE) == -1) {
-				perror("writen");
-				return;
-			}
-
-			// ... poi la dimensione del file...
-			if (writen(fd_c, &espulso->size, sizeof(size_t)) == -1) {
-				perror("writen");
-				return;
-			}
-
-			// ...e infine il contenuto
-			memset(buf, 0, BUFSIZE);
-			memcpy(buf, espulso->content, espulso->size);
-			if (writen(fd_c, buf, espulso->size) == -1) {
-				perror("writen");
-				return;
+			if (sendFile(espulso, fd_c) == -1) {
+				perror("sendFile");
+				goto cleanup;
 			}
 		}
 
@@ -817,21 +795,156 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 		else if(strcmp(res, "er") == 0) {			
 			if (writen(fd_c, &errno, sizeof(int)) == -1) {
 				perror("writen");
-				return;
+				goto cleanup;
 			}
 		}
 
 		free(buf);
-	}
 
 	// libera la memoria
-	if (espulso) {
-		destroyFile(espulso);
-	}
+	cleanup: 
+		if (espulso) {
+			destroyFile(espulso);
+		}
 
-	free(res);
+		free(res);
 }
 
-void writeFile(char *filepath, queueT* queue, long fd_c) {
-	// TO-DO
+void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
+	void *res = malloc(BUFSIZE);
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char es[3] = "es";		// - - - - - - - - - - - - - - - - - - -  se un file e' stato espulso dalla cache
+	int found = 0;
+	fileT *espulso = NULL;
+
+	memcpy(res, ok, 3);
+	
+	// controllo la validita' degli argomenti
+	if (!filepath || !queue) {
+		errno = EINVAL;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// cerco se il file su cui si vuole scrivere e' presente nel server
+	fileT *findF = NULL;
+	findF = find(queue, filepath);
+	if (findF != NULL) {
+		found = 1;
+	}
+
+	printf("writeFile: found = %d\n", found);	
+
+	// il file e' presente nel server
+	if (found) {
+		printf("Il file e' locked? %d Owner = %d Client = %ld\n", findF->O_LOCK, findF->owner, fd_c);
+
+		// controllo se il client ha i permessi per scrivere sul file
+		if (!findF->open || (findF->O_LOCK && findF->owner != fd_c)) {
+			errno = EPERM;
+			memcpy(res, er, 3);
+            goto send;
+		}
+
+		// se la cache e' piena, espelli un file secondo la politica FIFO
+		if (queue->size + size > queue->maxSize) {
+			printf("writeFile: cache piena (queue->size = %ld), espello un elemento.\n", queue->size);
+			espulso = dequeue(queue);
+
+			if (espulso == NULL) {
+				perror("dequeue");
+				memcpy(res, er, 3);
+				goto send;
+			}
+
+			
+			memcpy(res, es, 3);
+		}
+	}
+
+	// se il file non e' presente, errore
+	else {
+		errno = ENOENT;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	destroyFile(findF);
+
+	// invia risposta al client
+	send:
+		printf("writeFile: mando risposta al client\n");
+		void *buf = NULL;
+		buf = malloc(BUFSIZE);
+		memcpy(buf, res, 3);
+
+		if (writen(fd_c, buf, 3) == -1) {
+			perror("writen");
+			goto cleanup;
+		}
+
+		// se un file è stato espulso dalla coda, lo invio al client
+		if (strcmp(res, "es") == 0) {
+			if (sendFile(espulso, fd_c) == -1) {
+				perror("sendFile");
+				goto cleanup;
+			}
+		}
+
+		// se c'è stato un errore, invio errno al client
+		else if(strcmp(res, "er") == 0) {			
+			if (writen(fd_c, &errno, sizeof(int)) == -1) {
+				perror("writen");
+				goto cleanup;
+			}
+		}
+
+		free(buf);
+
+	// libera la memoria
+	cleanup: 
+		if (espulso) {
+			destroyFile(espulso);
+		}
+
+		free(res);
+
+}
+
+// funzione ausiliaria che invia un file al client
+int sendFile(fileT *f, long fd_c) {
+	void *buf = NULL;
+	buf = malloc(BUFSIZE);
+
+	// invio prima il filepath...
+	printf("invio il filepath: %s\n", f->filepath);
+	memset(buf, 0, BUFSIZE);
+	memcpy(buf, f->filepath, strlen(f->filepath)+1);
+	printf("memcpy fatta\n");
+	if (writen(fd_c, buf, BUFSIZE) == -1) {
+		perror("writen");
+		free(buf);
+		return -1;
+	}
+
+	// ... poi la dimensione del file...
+	if (writen(fd_c, &f->size, sizeof(size_t)) == -1) {
+		perror("writen");
+		free(buf);
+		return -1;
+	}
+
+	// ...e infine il contenuto
+	memset(buf, 0, BUFSIZE);
+	memcpy(buf, f->content, f->size);
+	if (writen(fd_c, buf, f->size) == -1) {
+		perror("writen");
+		free(buf);
+		return -1;
+	}
+
+
+	free(buf);
+	return 0;
 }
