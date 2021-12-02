@@ -393,6 +393,73 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
     return 0;
 }
 
+int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client) {
+    // controllo la validità degli argomenti
+    if (!queue || !filepath || !content) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda e' vuota, errore
+    if (queue->len == 0) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    // se non c'e' abbastanza spazio nella coda, errore
+    if (queue->size + size > queue->maxSize) {
+        errno = EFBIG;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    int found = 0;
+    nodeT *temp = queue->head;
+
+    // scorro tutta la coda
+    while (temp && !found) {
+        if (strcmp(filepath, (temp->data)->filepath) == 0) {
+            // ho trovato il file che cercavo
+            found = 1;
+
+            printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+
+            // controllo se il client ha i permessi per scrivere sul file
+            if ((temp->data)->open == 0 || ((temp->data)->O_LOCK && (temp->data)->owner != client)) {
+                errno = EPERM;
+                pthread_mutex_unlock(&queue->m);
+                return -1;
+            }
+
+            if (size != 0) {
+                // allora la memoria
+                if (((temp->data)->content = realloc((temp->data)->content, (temp->data)->size + size)) == NULL) {
+                    perror("Malloc content");
+                    pthread_mutex_unlock(&queue->m);
+                    return -1;
+                } 
+            }
+
+            // scrittura in append
+            memcpy((temp->data)->content + (temp->data)->size, content, size);
+            (temp->data)->size += size;
+            queue->size += size;
+        }
+
+        temp = temp->next;
+    }
+
+    pthread_mutex_unlock(&queue->m);
+
+    if (!found) {
+        return -1;
+    }
+
+    return 0;
+}
 
 // attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
 fileT* find(queueT *queue, char *filepath) {

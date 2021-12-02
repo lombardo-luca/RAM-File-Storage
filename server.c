@@ -18,8 +18,8 @@
 #include <partialIO.h>
 
 #define UNIX_PATH_MAX 108 
-#define BUFSIZE 512
 #define CMDSIZE 256
+#define BUFSIZE 10000	// 10KB
 
 // struttura dati che contiene gli argomenti da passare ai worker threads
 typedef struct struct_thread {
@@ -36,6 +36,73 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c);
 
 // funzioni ausiliarie
 int sendFile(fileT *f, long fd_c);
+
+// funzioni di test
+int testQueue(queueT *queue) {
+	printf("TEST QUEUE\n");
+	void *buf1 = malloc(256);
+	fileT *f1, *f2;
+	char str1[256] = "contenutofile1";
+	memcpy(buf1, str1, 15);
+	 
+	void *buffer = malloc(256);
+    FILE* ipf = fopen("test/file1.txt", "rb");
+    int r = fread(buffer, 1, 256, ipf);
+    fclose(ipf);
+
+	if ((f1 = createFileT("test/file1.txt", 0, 0, 0)) == NULL) {
+		perror("createFileT f1");
+		return -1;
+	}
+
+	if (writeFileT(f1, buffer, r) == -1) {
+		perror("writeFileT f1");
+		return -1;
+	}	
+
+	printf("queue len = %ld\n", getLen(queue));
+
+	if (enqueue(queue, f1) != 0) {
+		perror("enqueue f1");
+		return -1;
+	}
+
+	printf("queue len = %ld (dovrebbe essere 1)\n", getLen(queue));
+
+	if ((f2 = createFileT("test/file2.txt", 1, 5, 0)) == NULL) {
+		perror("createFileT f1");
+		return -1;
+	}
+
+	if (enqueue(queue, f2) != 0) {
+		perror("enqueue f2");
+		return -1;
+	}
+
+	printf("queue len = %ld (dovrebbe essere 2)\n", getLen(queue));
+
+	/*
+	fileT *dequeueF;
+	dequeueF = dequeue(queue);
+
+	if (dequeueF == NULL) {
+		printf("ERRORE??1\n");
+	}
+
+	destroyFile(dequeueF);
+	*/
+
+	free(buffer);
+	free(buf1);
+
+	if (printQueue(queue) == -1) {
+		perror("printQueue");
+		return -1;
+	}
+	printf("FINE TEST QUEUE\n");
+
+	return 0;
+}
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -147,9 +214,9 @@ int main(int argc, char *argv[]) {
 			printf("CONFIG: Numero massimo di file supportati = %ld\n", maxFiles);
 		}
 
-		// configuro la dimensione massima supportata (in MB)
+		// configuro la dimensione massima supportata (in KB)
 		else if (strcmp("maxSize", option) == 0) {
-			maxSize = (size_t) (strtol(value, NULL, 0) * 1000000);
+			maxSize = (size_t) (strtol(value, NULL, 0) * 1000);
 
 			if (maxSize <= 0) {
 				printf("Errore di configurazione: la dimensione massima dev'essere maggiore o uguale a 1.\n");
@@ -158,7 +225,7 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-			printf("CONFIG: Dimensione massima supportata = %lu MB (%lu bytes)\n", maxSize/1000000, maxSize);
+			printf("CONFIG: Dimensione massima supportata = %lu KB (%lu Bytes)\n", maxSize/1000, maxSize);
 		}
 
 		// configuro il nome del file nel quale verranno scritti i logs
@@ -226,69 +293,10 @@ int main(int argc, char *argv[]) {
 	// creo la coda di file
 	queueT *queue = createQueue(maxFiles, maxSize);
 
-	printf("TEST QUEUE\n");
-	void *buf1 = malloc(256);
-	fileT *f1, *f2;
-	char str1[256] = "contenutofile1";
-	memcpy(buf1, str1, 15);
-	 
-	void *buffer = malloc(256);
-    FILE* ipf = fopen("test/file1.txt", "rb");
-    int r = fread(buffer, 1, 256, ipf);
-    fclose(ipf);
-
-	if ((f1 = createFileT("test/file1.txt", 0, 0, 0)) == NULL) {
-		perror("createFileT f1");
+	if (testQueue(queue) == -1) {
+		perror("testQueue");
 		return 1;
 	}
-
-	if (writeFileT(f1, buffer, r) == -1) {
-		perror("writeFileT f1");
-		return 1;
-	}	
-
-	printf("queue len = %ld\n", queue->len);
-
-	if (enqueue(queue, f1) != 0) {
-		perror("enqueue f1");
-		return 1;
-	}
-
-	printf("queue len = %ld (dovrebbe essere 1)\n", queue->len);
-
-	if ((f2 = createFileT("test/file2.txt", 1, 5, 0)) == NULL) {
-		perror("createFileT f1");
-		return 1;
-	}
-
-	if (enqueue(queue, f2) != 0) {
-		perror("enqueue f2");
-		return 1;
-	}
-
-	printf("queue len = %ld (dovrebbe essere 2)\n", queue->len);
-
-	fileT *dequeueF;
-	dequeueF = dequeue(queue);
-
-	if (dequeueF == NULL) {
-		printf("ERRORE??1\n");
-	}
-
-	destroyFile(dequeueF);
-
-	//voiDequeue(queue);
-	//voiDequeue(queue);
-
-	free(buffer);
-	free(buf1);
-
-	if (printQueue(queue) == -1) {
-		perror("printQueue");
-		return 1;
-	}
-	printf("FINE TEST QUEUE\n");
-	//return 0;
 
 	// creo la threadpool
 	threadpool_t *pool = NULL;
@@ -487,6 +495,12 @@ int main(int argc, char *argv[]) {
 	}
 
 	destroyThreadPool(pool, 0);		// notifico a tutti i thread workers di terminare
+
+	printf("Sto per distruggere la cache\n");
+	if (printQueue(queue) == -1) {
+		perror("printQueue");
+		return 1;
+	}
 	destroyQueue(queue);			// distruggo la coda di file e libero la memoria
 
 	if (pthread_join(st, NULL) != 0) {
@@ -736,8 +750,8 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	// il client vuole creare il file
 	else if (O_CREATE && !found) {
 		// se la cache e' piena, espelli un file secondo la politica FIFO
-		if (queue->len == queue->maxLen) {
-			printf("openFile: coda piena (queue->len = %ld), espello un elemento.\n", queue->len);
+		if (getLen(queue) == queue->maxLen) {
+			printf("openFile: coda piena (queue->len = %ld), espello un elemento.\n", getLen(queue));
 			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
@@ -817,6 +831,8 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 	char es[3] = "es";		// - - - - - - - - - - - - - - - - - - -  se un file e' stato espulso dalla cache
 	int found = 0;
 	fileT *espulso = NULL;
+	void *content = NULL;
+	content = malloc(size);
 
 	memcpy(res, ok, 3);
 	
@@ -832,6 +848,14 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 	findF = find(queue, filepath);
 	if (findF != NULL) {
 		found = 1;
+
+		// se la dimensione del file scritto sarebbe piu' grande della capacita' massima della cache, errore
+		if (findF->size + size > queue->maxSize) {
+			destroyFile(findF);
+			errno = EFBIG;
+			memcpy(res, er, 3);
+			goto send;
+		}
 	}
 
 	printf("writeFile: found = %d\n", found);	
@@ -847,9 +871,9 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
             goto send;
 		}
 
-		// se la cache e' piena, espelli un file secondo la politica FIFO
-		if (queue->size + size > queue->maxSize) {
-			printf("writeFile: cache piena (queue->size = %ld), espello un elemento.\n", queue->size);
+		// se non c'e' abbastanza spazio nella cache, espelli un file secondo la politica FIFO
+		if (getSize(queue) + size > queue->maxSize) {
+			printf("writeFile: cache piena (queue->size = %ld), espello un elemento.\n", getSize(queue));
 			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
@@ -858,7 +882,6 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 				goto send;
 			}
 
-			
 			memcpy(res, es, 3);
 		}
 	}
@@ -884,11 +907,62 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 			goto cleanup;
 		}
 
-		// se un file è stato espulso dalla coda, lo invio al client
+		// se un file e' stato espulso dalla coda, lo invio al client
 		if (strcmp(res, "es") == 0) {
 			if (sendFile(espulso, fd_c) == -1) {
 				perror("sendFile");
 				goto cleanup;
+			}
+
+			// se ancora non c'e' abbastanza spazio nella cache, espelli altri file
+			while (getSize(queue) + size > queue->maxSize) {
+				if (getSize(queue) == 0 || getLen(queue) == 0) {
+					// non dovrebbe mai accadere poiche' si controlla prima se il file puo' essere contenuto nella cache
+					errno = EINVAL;
+					goto cleanup;
+				}
+
+				printf("writeFile: cache ancora piena (queue->size = %ld), espello un elemento.\n", getSize(queue));
+
+				// libero la memoria del file appena mandato
+				if (espulso) {
+					destroyFile(espulso);
+				}
+
+				espulso = dequeue(queue);
+
+				if (espulso == NULL) {
+					perror("dequeue");
+					goto cleanup;
+				}
+
+				if (sendFile(espulso, fd_c) == -1) {
+					perror("sendFile");
+					goto cleanup;
+				}
+			}
+
+			// avverto il client che ho finito di mandare file
+			char fine[6] = ".FINE";
+			printf("invio %s\n", fine);
+			memset(buf, 0, BUFSIZE);
+			memcpy(buf, fine, 6);
+
+			if (writen(fd_c, buf, BUFSIZE) == -1) {
+				perror("writen");
+				goto cleanup;
+			}
+
+			// ricevo dal client il contenuto del file da scrivere
+			if ((readn(fd_c, content, size)) == -1) {
+				perror("readn");
+				goto cleanup;
+			}
+
+			// scrivi il file
+			if (appendFileInQueue(queue, filepath, content, size, fd_c) == -1) {
+				perror("writeFileT");
+				memcpy(res, er, 3);
 			}
 		}
 
@@ -896,11 +970,21 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 		else if(strcmp(res, "er") == 0) {			
 			if (writen(fd_c, &errno, sizeof(int)) == -1) {
 				perror("writen");
-				goto cleanup;
 			}
 		}
 
-		free(buf);
+		// se non ci sono stati errori e non ho dovuto espellere alcun file, eseguo la richiesta del client
+		else {
+			// ricevo dal client il contenuto del file da scrivere
+			if ((readn(fd_c, content, size)) == -1) {
+				perror("readn");
+			}
+
+			// scrivi il file
+			if (appendFileInQueue(queue, filepath, content, size, fd_c) == -1) {
+				perror("writeFileT");
+			}
+		}	
 
 	// libera la memoria
 	cleanup: 
@@ -908,8 +992,9 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 			destroyFile(espulso);
 		}
 
+		free(buf);
+		free(content);
 		free(res);
-
 }
 
 // funzione ausiliaria che invia un file al client

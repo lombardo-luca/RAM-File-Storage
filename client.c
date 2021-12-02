@@ -15,10 +15,81 @@
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME "./mysock"
 #define CMDSIZE 256
-#define BUFSIZE 512
+#define BUFSIZE 10000 	// 10KB
 
 int cmd_f(char* socket);
 int cmd_W(char *filelist);
+
+void testOpenFile() {
+	printf("INIZIO TEST OPENFILE\n");
+	printf("Usare maxFiles = 3, un file gia' dentro il server\n");
+	printf("Creo un file non lockato. Dovrebbe dare OK.\n");
+	if (openFile("fileNONLOCKED", 1) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo un file lockato. Dovrebbe dare OK.\n");
+	if (openFile("fileLOCKED", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo un file gia' esistente. Dovrebbe dare ER.\n");
+	if (openFile("test/file2.txt", 1) == -1) {
+		perror("openFile");
+	}
+
+	printf("Apro un file che esiste ma e' lockato da un client diverso. Dovrebbe dare ER.\n");
+	if (openFile("test/file2.txt", 2) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo un file ma la coda e' piena. Dovrebbe dare ES.\n");
+	if (openFile("fileLOCKED2", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("Apro un file che esiste e non e' lockato. Dovrebbe dare OK.\n");
+	if (openFile("fileNONLOCKED", 2) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo un altro file ma la coda e' piena. Dovrebbe dare ES.\n");
+	if (openFile("fileLOCKED3", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("Creo l'ultimo file ma la coda e' piena. Dovrebbe dare ES.\n");
+	if (openFile("fileLOCKED4", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("FINE TEST OPENFILE\n");
+}
+
+void testWriteFile() {
+	printf("INIZIO TEST WRITEFILE\n");
+	printf("Usare maxFiles = 2, maxSize = 5, due file gia' dentro il server\n");
+	printf("Scrivo un file che non ho aperto. Mi aspetto: perror\n");
+	if (writeFile("test/filepesante", NULL) == -1) {
+		perror("writeFile");
+	}
+
+	printf("Creo un file non lockato. Mi aspetto: ES\n");
+	if (openFile("test/fileleggero", 1) == -1) {
+		perror("openFile");
+	}
+
+	printf("Scrivo un file creato e aperto da me. Mi aspetto: OK\n");
+	if (writeFile("test/fileleggero", NULL) == -1) {
+		perror("writeFile");
+	}
+
+	printf("Creo un altro file prima di chiudere l'altro. Mi aspetto: perror\n");
+	if (openFile("test/filepesante", 3) == -1) {
+		perror("openFile");
+	}
+	printf("FINE TEST WRITEFILE\n");
+}
 
 int main(int argc, char* argv[]) {
 	char sock[256];
@@ -112,39 +183,8 @@ int main(int argc, char* argv[]) {
 		nanosleep(&tim1, &tim2);
 	}
 
-	/*
-	printf("INIZIO TEST OPENFILE\n");
-	printf("Creo un file non lockato. Dovrebbe dare OK.\n");
-	if (openFile("fileNONLOCKED", 1) == -1) {
-		perror("openFile");
-	}
-
-	printf("Creo un file lockato. Dovrebbe dare OK.\n");
-	if (openFile("fileLOCKED", 3) == -1) {
-		perror("openFile");
-	}
-
-	printf("Creo un file gia' esistente. Dovrebbe dare ER.\n");
-	if (openFile("test/file2.txt", 1) == -1) {
-		perror("openFile");
-	}
-
-	printf("Apro un file che esiste ma e' lockato da un client diverso. Dovrebbe dare ER.\n");
-	if (openFile("test/file2.txt", 2) == -1) {
-		perror("openFile");
-	}
-
-	printf("Creo un file ma la coda e' piena. Dovrebbe dare ES.\n");
-	if (openFile("fileLOCKED2", 3) == -1) {
-		perror("openFile");
-	}
-
-	printf("Apro un file che esiste e non e' lockato. Dovrebbe dare OK.\n");
-	if (openFile("fileNONLOCKED", 2) == -1) {
-		perror("openFile");
-	}
-	printf("FINE TEST OPENFILE\n");
-	*/
+	//testOpenFile();
+	testWriteFile();
 
 	return 0;
 }

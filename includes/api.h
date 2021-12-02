@@ -43,5 +43,6 @@ int openFile(const char* pathname, int flags);
 */
 int writeFile(const char* pathname, const char* dirname);
 
-// Funzione ausiliaria
+// Funzioni ausiliarie
 int receiveFile(char *dirname);
+int receiveNFiles(char *dirname);

@@ -122,6 +122,11 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner);
 int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client);
 
 /**
+ * 
+ */
+int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client);
+
+/**
  * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore).
  * \param queue -> puntatore alla coda sulla quale cercare il fileT
  * \param filepath -> path assoluto del fileT da cercare 

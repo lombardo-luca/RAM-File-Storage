@@ -14,7 +14,7 @@
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
 #define CMDSIZE 256
-#define BUFSIZE 512
+#define BUFSIZE 10000 // 10KB
 
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
@@ -105,6 +105,12 @@ int openFile(const char* pathname, int flags) {
 	// controllo che il client sia effettivamente connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
+		return -1;
+	}
+
+	// controllo che il client non abbia gia' un file aperto
+	if (strcmp(openedFile, "") != 0) {
+		errno = EMFILE;
 		return -1;
 	}
 
@@ -199,11 +205,17 @@ int writeFile(const char* pathname, const char* dirname) {
 	if ((ipf = fopen(pathname, "rb")) == NULL) {
 		perror("fopen");
 		free(buf);
+		free(content);
 		return -1;
 	}
 
 	size = fread(content, 1, BUFSIZE, ipf);
 	printf("writeFile: ho letto %ld bytes\n", size);
+
+	if (size == BUFSIZE) {
+		printf("La dimensione del file supera il limite (%dB). Soltanto i primi %dB saranno inviati.\n", BUFSIZE, BUFSIZE);
+	}
+
 	fclose(ipf);
 
 	// preparo il comando da inviare al server in formato writeFile:pathname:size
@@ -219,6 +231,8 @@ int writeFile(const char* pathname, const char* dirname) {
 	printf("writeFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+		free(buf);
+		free(content);
 		errno = EREMOTEIO;
 		return -1;
 	}
@@ -227,6 +241,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
 		free(buf);
+		free(content);
 		errno = EREMOTEIO;
 		return -1;
 	}
@@ -236,7 +251,41 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	printf("writeFile: ho ricevuto: %s!\n", res);
 
-	// TO-DO
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(buf, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, buf, sizeof(int))) == -1) {
+			free(buf);
+			free(content);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, buf, sizeof(int));
+		free(buf);
+		free(content);
+		return -1;
+	}
+
+	// se il server ha dovuto espellere dei file per fare spazio, li ricevo tutti
+	else if (strcmp(res, "es") == 0) {
+		if (receiveNFiles(NULL) == -1) {
+			free(buf);
+			free(content);
+			return -1;
+		}
+	}
+
+	// invio il contenuto del file al server
+	if (writen(fd_skt, content, size) == -1) {
+		free(buf);
+		free(content);
+		errno = EREMOTEIO;
+		return -1;
+	}
 
 	free(buf);
 	free(content);
@@ -292,6 +341,73 @@ int receiveFile(char *dirname) {
     printf("FINE TEST SCRITTURA SU FILE\n");
 
 	free(content);
+	free(buf);
+
+	return 0;
+}
+
+// funzione ausiliaria che riceve N files dal server
+int receiveNFiles(char *dirname) {
+	void *buf = NULL;
+	buf = malloc(BUFSIZE);
+	char filepath[BUFSIZE];
+	size_t size;
+	int fine = 0;
+
+	while (!fine) {
+		memset(buf, 0, BUFSIZE);
+		void *content = NULL;
+
+		// ricevo prima il filepath
+		if ((readn(fd_skt, buf, BUFSIZE)) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		strncpy(filepath, buf, BUFSIZE);
+		printf("receiveNFiles: ho ricevuto filepath = %s!\n", filepath);
+
+		// se ho finito di ricevere file, esci
+		if (strcmp(filepath, ".FINE") == 0) {
+			fine = 1;
+			printf("receiveNFiles: esco dal while...\n");
+			break;
+		}
+
+		// poi ricevo la dimensione del file...
+		memset(buf, 0, BUFSIZE);
+		if ((readn(fd_skt, buf, sizeof(size_t))) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		memcpy(&size, buf, sizeof(size_t));
+		printf("Ho ricevuto size = %ld\n", size);
+
+		content = malloc(size);
+
+		// ...e infine il contenuto
+		if ((readn(fd_skt, content, size)) == -1) {
+			free(buf);
+			free(content);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		printf("Ho ricevuto il contenuto!\n");
+
+		printf("SCRITTURA SU FILE\n");
+	    FILE* opf = fopen("testscritturaCLIENT", "w");
+	    printf("Voglio scrivere %ld bytes\n", size);
+	    fwrite(content, 1, size, opf);
+	    fclose(opf);
+	    printf("FINE SCRITTURA SU FILE\n");
+
+	    free(content);
+	}
+
 	free(buf);
 
 	return 0;
