@@ -13,10 +13,19 @@
 #include <partialIO.h>
 
 #define UNIX_PATH_MAX 108 
-#define SOCKNAME "./mysock"
+//#define SOCKNAME "./mysock"
 #define CMDSIZE 256
 #define BUFSIZE 10000 	// 10KB
 
+typedef struct struct_cmd {		
+	char cmd;					// nome del comando
+	char *arg;					// (eventuale) argomento del comando
+	struct struct_cmd *next;	// puntatore al prossimo comando nella lista
+} cmdT;
+
+int addCmd(cmdT **cmdList, char cmd, char *arg);
+int execute(cmdT *cmdList);
+int destroyCmdList(cmdT *cmdList);
 int cmd_f(char* socket);
 int cmd_W(char *filelist);
 
@@ -92,7 +101,6 @@ void testWriteFile() {
 }
 
 int main(int argc, char* argv[]) {
-	char sock[256];
 	struct sigaction siga;
 
 	printf("File Storage Client avviato.\n");
@@ -111,23 +119,28 @@ int main(int argc, char* argv[]) {
 		return 1;
 	} 
 
-	strncpy(sock, SOCKNAME, 9);
-
-	struct timespec tim1, tim2;
-	tim1.tv_sec = 0;
-	tim1.tv_nsec = 0;
 	int opt;
-	int f = 0, sec = 0;
-	double msec = 0;
-	long num = 0;
+	int f = 0, h = 0;
+	char args[256];
+
+	// creo la lista di comandi
+	cmdT *cmdList = NULL;
+	cmdList = calloc(1, sizeof(cmdT));
+	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hf:t:W:")) != -1) {
+	while ((opt = getopt(argc, argv, "hf:t:W:D:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
-				printf("Ecco tutte le opzioni accettate ecc... TO-DO\n");
-				return 0;
+				if (h) {
+					printf("Il comando -h puo' essere usato solo una volta.\n");
+					break;
+				}
 
+				addCmd(&cmdList, opt, "");
+				h = 1;
+				break;
+			
 			// specifica il nome del socket AF_UNIX a cui connettersi
 			case 'f':
 				if (f) {
@@ -135,19 +148,130 @@ int main(int argc, char* argv[]) {
 					break;
 				}
 
-				printf("DEBUG: Nome socket: %s\n", optarg);
-				strncpy(sock, optarg, strlen(optarg)+1);
+				addCmd(&cmdList, opt, optarg);
 				f = 1;
+				break;
 
-				if (cmd_f(optarg) != 0) {
+			case 't':	// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
+			case 'W':	// lista di nomi di file da scrivere nel server separati da virgole
+				memset(args, '\0', 256);
+				strncpy(args, optarg, strlen(optarg)+1);
+				addCmd(&cmdList, opt, args);
+				break;
+
+			// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
+			case 'D':
+				break;
+
+			// argomento non riconosciuto
+			case '?': default:
+				break;
+		}
+	}
+
+	if (execute(cmdList) == -1) {
+		perror("execute");
+		return 1;
+	}
+
+	if (destroyCmdList(cmdList) == -1) {
+		perror("destroyCmdList");
+		return 1;
+	}
+
+	//testOpenFile();
+	//testWriteFile();
+
+	return 0;
+}
+
+// aggiunge un comando in fondo alla lista
+int addCmd(cmdT **cmdList, char cmd, char *arg) {
+	// controllo la validita' degli argomenti 
+	if (!cmdList || !arg) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// creo il nuovo elemento allocandone la memoria
+	cmdT *new = NULL;
+	if ((new = malloc(sizeof(cmdT))) == NULL) {
+		perror("malloc cmdT");
+		return -1;
+	}
+
+	new->cmd = cmd;
+
+	if ((new->arg = malloc(CMDSIZE)) == NULL) {
+		perror("malloc arg");
+		free(new);
+		return -1;
+	}
+
+	strncpy(new->arg, arg, strlen(arg)+1);
+
+	new->next = NULL;
+
+	cmdT *tail = *cmdList;
+
+	// se la lista era vuota, il comando aggiunto diventa il primo della lista
+	if (*cmdList == NULL) {
+		*cmdList = tail;
+	}
+
+	// altrimenti, scorro tutta la lista e aggiungo il comando come ultimo elemento
+	else {
+		while (tail->next) {
+			tail = tail->next;
+		}
+
+		tail->next = new;
+	}
+
+	return 0;
+}
+
+// esegue tutti i comandi nella lista, uno alla volta
+int execute(cmdT *cmdList) {
+	// controllo la validita' dell'argomento
+	if (!cmdList) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	cmdT *temp = NULL;
+	temp = cmdList;
+	char sock[256];		// socket che viene impostato con il comando -f
+
+	// variabili per gestire il comando -t
+	struct timespec tim1, tim2;
+	tim1.tv_sec = 0;
+	tim1.tv_nsec = 0;
+	int sec = 0;
+	double msec = 0;
+	long num = 0;
+
+	while(temp) {
+		switch (temp->cmd) {
+			// stampa il messaggio di aiuto
+			case 'h':
+				printf("Ecco tutte le opzioni accettate ecc... TO-DO\n");
+				break;
+
+			// connettiti al socket AF_UNIX specificato
+			case 'f':
+				printf("DEBUG: Nome socket: %s\n", temp->arg);
+				strncpy(sock, temp->arg, strlen(temp->arg)+1);
+
+				if (cmd_f(temp->arg) != 0) {
 					printf("Errore nell'esecuzione del comando -f.\n");
 				}
 
 				break;
 
-			// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
+			// imposto il tempo che intercorre tra l’invio di due richieste successive al server
 			case 't':
-				num = strtol(optarg, NULL, 0);
+				num = strtol(temp->arg, NULL, 0);
 
 				// converto i msec inseriti dall'utente in secondi e nanosecondi per la nanosleep
 				if (num > 1000) {
@@ -166,25 +290,42 @@ int main(int argc, char* argv[]) {
 
 			// lista di nomi di file da scrivere nel server separati da virgole
 			case 'W':
-				printf("DEBUG: lista file da scrivere: %s\n", optarg);
+				printf("DEBUG: lista file da scrivere: %s\n", temp->arg);
 
-				if (cmd_W(optarg) != 0) {
+				if (cmd_W(temp->arg) != 0) {
 					printf("Errore nell'esecuzione del comando -W\n");
 				}
 
 				break;
-
-			// argomento non riconosciuto
-			case '?': default:
-				break;
 		}
 
-		// attento prima di mandare la prossima richiesta al server
+		temp = temp->next;
+
+		// attendo prima di mandare la prossima richiesta al server
 		nanosleep(&tim1, &tim2);
 	}
 
-	//testOpenFile();
-	//testWriteFile();
+	return 0;
+}
+
+int destroyCmdList(cmdT *cmdList) {
+	// controllo la validita' dell'argomento
+	if (!cmdList) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	cmdT *temp;
+
+	// scorro tutta la lista e libero la memoria
+	while (cmdList) {
+		temp = cmdList;
+
+		free(cmdList->arg);
+		cmdList = cmdList->next;
+
+		free(temp);
+	}
 
 	return 0;
 }
@@ -208,6 +349,7 @@ int cmd_f(char* socket) {
 	return 0;
 }
 
+// scrivi una lista di file sul server
 int cmd_W(char *filelist) {
 	// parso la lista di file da scrivere
 	char *token = NULL, *save = NULL;

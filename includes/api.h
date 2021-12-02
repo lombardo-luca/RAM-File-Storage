@@ -46,6 +46,7 @@ int writeFile(const char* pathname, const char* dirname);
 /**
  * Richiesta di chiusura del file puntato da "pathname". Eventuali operazioni sul file dopo la closeFile falliscono.
  * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
+ * Quando un file viene chiuso, la mutua esclusione viene rilasciata automaticamente.
  */
 int closeFile(const char *pathname);
 

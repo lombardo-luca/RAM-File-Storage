@@ -22,7 +22,7 @@ all		: $(TARGETS)
 server: server.o libPool.a libQueue.a libIO.a
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
-client: client.o libAPI.a libIO.a 
+client: client.o libAPI.a libIO.a
 	$(CC) $(CFLAGS) $(INCLUDES) $(OPTFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
 
 libPool.a: ./includes/threadpool.o ./includes/threadpool.h
