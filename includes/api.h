@@ -43,6 +43,12 @@ int openFile(const char* pathname, int flags);
 */
 int writeFile(const char* pathname, const char* dirname);
 
+/**
+ * Richiesta di chiusura del file puntato da "pathname". Eventuali operazioni sul file dopo la closeFile falliscono.
+ * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
+ */
+int closeFile(const char *pathname);
+
 // Funzioni ausiliarie
 int receiveFile(char *dirname);
 int receiveNFiles(char *dirname);

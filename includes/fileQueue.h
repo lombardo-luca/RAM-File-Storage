@@ -25,22 +25,6 @@ typedef struct {
     pthread_mutex_t m;
 } queueT;
 
-/*
-// coda FIFO di fileT. E' vuota quando head == tail, quindi può contenere al massimo maxLen-1 elementi.
-typedef struct {
-    size_t head;
-    size_t tail;
-    size_t maxLen;      // numero massimo di elementi supportati nella coda + 1
-    size_t len;         // numero attuale di elementi nella coda (< maxLen)
-    size_t maxSize;     // dimensione massima degli elementi nella coda
-    size_t size;        // somma delle dimensioni degli elementi presenti in coda (<= maxSize)
-    fileT** data;       
-    pthread_mutex_t m;
-    //pthread_cond_t full;
-    //pthread_cond_t empty;
-} queueT;
-*/
-
 /**
  * Alloca ed inizializza un fileT.
  * \param filepath -> stringa che identifica il path assoluto del fileT
@@ -120,6 +104,11 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner);
  * \retval -> 0 se successo, -1 se errore (setta errno)
  */
 int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client);
+
+/**
+ * 
+ */
+int closeFileInQueue(queueT *queue, char *filepath, int client);
 
 /**
  * 

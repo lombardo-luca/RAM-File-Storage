@@ -364,7 +364,7 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
             // ho trovato il file che cercavo
             found = 1;
 
-            printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+            printf("openFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != client) {
@@ -379,6 +379,58 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
             if (O_LOCK) {
                 (temp->data)->owner = client;
             }
+        }
+
+        temp = temp->next;
+    }
+
+    pthread_mutex_unlock(&queue->m);
+
+    if (!found) {
+        return -1;
+    }
+
+    return 0;
+}
+
+int closeFileInQueue(queueT *queue, char *filepath, int client) {
+    // controllo la validità degli argomenti
+    if (!queue || !filepath) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda e' vuota, errore
+    if (queue->len == 0) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    int found = 0;
+    nodeT *temp = queue->head;
+
+    // scorro tutta la coda
+    while (temp && !found) {
+        if (strcmp(filepath, (temp->data)->filepath) == 0) {
+            // ho trovato il file che cercavo
+            found = 1;
+
+            printf("closeFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+
+            // se il file e' stato messo in modalita' locked da un client diverso, errore
+            if ((temp->data)->O_LOCK && (temp->data)->owner != client) {
+                errno = EPERM;
+                pthread_mutex_unlock(&queue->m);
+                return -1;
+            }
+
+            // chiudi il file e togli la modalita' locked
+            (temp->data)->open = 0;
+            (temp->data)->O_LOCK = 0;
+            (temp->data)->owner = client;
         }
 
         temp = temp->next;

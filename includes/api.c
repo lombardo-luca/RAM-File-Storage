@@ -176,7 +176,6 @@ int openFile(const char* pathname, int flags) {
 	free(buf);
 	
 	// tengo traccia del file aperto
-	//lastOp = 1;
 	strncpy(openedFile, pathname, strlen(pathname)+1);
 
 	return 0;
@@ -292,6 +291,72 @@ int writeFile(const char* pathname, const char* dirname) {
 	return 0;
 }
 
+int closeFile(const char* pathname) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo che il file da chiudere sia effettivamente aperto
+	if (strcmp(openedFile, pathname) != 0) {
+		errno = ENOENT;
+		return -1;
+	}
+
+	char cmd[CMDSIZE] = "";
+
+	// preparo il comando da inviare al server in formato closeFile:pathname
+	memset(cmd, '\0', CMDSIZE);
+	strncpy(cmd, "closeFile:", 11);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+
+	// invio il comando al server
+	printf("closeFile: invio %s!\n", cmd);
+
+	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	// ricevo la risposta dal server
+	void *buf = malloc(BUFSIZE);
+	int r = readn(fd_skt, buf, 3);
+	if (r == -1 || r == 0) {
+		free(buf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, buf, 3);
+
+	printf("closeFile: ho ricevuto: %s!\n", res);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(buf, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, buf, sizeof(int))) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, buf, sizeof(int));
+		free(buf);
+		return -1;
+	}
+
+	// aggiorno la variabile globale che tiene traccia del file aperto
+	strncpy(openedFile, "", 1);
+
+	free(buf);
+	return 0;
+}
+
 // funzione ausiliaria che riceve un file dal server
 int receiveFile(char *dirname) {
 	void *buf = malloc(BUFSIZE);
@@ -371,7 +436,6 @@ int receiveNFiles(char *dirname) {
 		// se ho finito di ricevere file, esci
 		if (strcmp(filepath, ".FINE") == 0) {
 			fine = 1;
-			printf("receiveNFiles: esco dal while...\n");
 			break;
 		}
 

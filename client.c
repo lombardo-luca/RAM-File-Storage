@@ -184,7 +184,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	//testOpenFile();
-	testWriteFile();
+	//testWriteFile();
 
 	return 0;
 }
@@ -213,22 +213,32 @@ int cmd_W(char *filelist) {
 	char *token = NULL, *save = NULL;
 	token = strtok_r(filelist, ",", &save);
 
+	// per ogni file nella lista...
 	while (token != NULL) {
 		printf("cmd_w: file: %s\n", token);
+		// apro il file
 		if (openFile(token, 1) == -1) {
 			perror("openFile");
+
 			return -1;
 		}
 
+		// scrivo il contenuto del file sul server
 		if (writeFile(token, NULL) == -1) {
 			perror("writeFile");
+
+			return -1;
+		}
+
+		// chiudo il file
+		if (closeFile(token) == -1) {
+			perror("closeFile");
+
 			return -1;
 		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
-
-	// TO-DO
 
 	return 0;
 }

@@ -33,6 +33,7 @@ int update(fd_set set, int fdmax);
 int parser(char *command, queueT *queue, long fd_c);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c);
 void writeFile(char *filepath, size_t size, queueT* queue, long fd_c);
+void closeFile(char *filepath, queueT* queue, long fd_c);
 
 // funzioni ausiliarie
 int sendFile(fileT *f, long fd_c);
@@ -663,7 +664,7 @@ int parser(char *command, queueT *queue, long fd_c) {
 	char *token = NULL, *save = NULL, *token2 = NULL, *token3 = NULL;
 	token = strtok_r(command, ":", &save);
 
-	// il comando ricevuto è openFile
+	// controllo il comando ricevuto e chiamo la procedura opportuna
 	if (strcmp(token, "openFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
 		token3 = strtok_r(NULL, ":", &save);
@@ -678,6 +679,11 @@ int parser(char *command, queueT *queue, long fd_c) {
 		size_t sz = (size_t) strtol(token3, NULL, 0);
 
 		writeFile(token2, sz, queue, fd_c);
+	}
+
+	else if (strcmp(token, "closeFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+		closeFile(token2, queue, fd_c);
 	}
 
 	// comando non riconosciuto
@@ -849,7 +855,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 	if (findF != NULL) {
 		found = 1;
 
-		// se la dimensione del file scritto sarebbe piu' grande della capacita' massima della cache, errore
+		// se la dimensione del file scritto diventerebbe piu' grande della capacita' massima della cache, errore
 		if (findF->size + size > queue->maxSize) {
 			destroyFile(findF);
 			errno = EFBIG;
@@ -995,6 +1001,68 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 		free(buf);
 		free(content);
 		free(res);
+}
+
+void closeFile(char *filepath, queueT* queue, long fd_c) {
+	void *res = malloc(BUFSIZE);
+	int found = 0;
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+
+	memcpy(res, ok, 3);
+
+	// controllo la validita' degli argomenti
+	if (!filepath || !queue) {
+		errno = EINVAL;
+		memcpy(res, er, 3);
+		return;
+	}
+
+	// cerco se il file e' presente nel server
+	fileT *findF = NULL;
+	findF = find(queue, filepath);
+	if (findF != NULL) {
+		found = 1;
+	}
+
+	printf("openFile: found = %d\n", found);
+
+	// se il file e' presente, chiudilo
+	if (found) {
+		// la funzione chiamata controlla se il client ha i permessi per poter chiudere il file
+		if (closeFileInQueue(queue, filepath, fd_c) == -1) {
+			perror("closeFileInQueue");
+			memcpy(res, er, 3);
+		}
+
+		destroyFile(findF);
+	}
+
+	// se il file non e' presente, errore
+	else {
+		errno = ENOENT;
+		memcpy(res, er, 3);
+	}
+
+	printf("closeFile: mando risposta al client\n");
+	void *buf = NULL;
+	buf = malloc(BUFSIZE);
+	memcpy(buf, res, 3);
+
+	// invio risposta al client
+	if (writen(fd_c, buf, 3) == -1) {
+		perror("writen");
+	}
+
+	// se c'è stato un errore, invio errno al client
+	else if(strcmp(res, "er") == 0) {			
+		if (writen(fd_c, &errno, sizeof(int)) == -1) {
+			perror("writen");
+		}
+	}
+
+	free(buf);
+	free(res);
 }
 
 // funzione ausiliaria che invia un file al client
