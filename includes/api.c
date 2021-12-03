@@ -18,6 +18,7 @@
 
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
+static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
 
 /**
  * lastOp = 1 se e solo se l'ultima operazione e' stata una openFile terminata con successo.
@@ -126,7 +127,7 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
-	printf("openFile: invio %s!\n", cmd);
+	//printf("openFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		errno = EREMOTEIO;
@@ -145,7 +146,7 @@ int openFile(const char* pathname, int flags) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	printf("openFile: ho ricevuto: %s!\n", res);
+	//printf("openFile: ho ricevuto: %s!\n", res);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -166,7 +167,6 @@ int openFile(const char* pathname, int flags) {
 
 	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
 	else if (strcmp(res, "es") == 0) {
-
 		if (receiveFile(NULL) == -1) {
 			free(buf);
 			return -1;
@@ -209,10 +209,12 @@ int writeFile(const char* pathname, const char* dirname) {
 	}
 
 	size = fread(content, 1, BUFSIZE, ipf);
-	printf("writeFile: ho letto %ld bytes\n", size);
+	printf("Dimensione: %ldB\t", size);
 
 	if (size == BUFSIZE) {
-		printf("La dimensione del file supera il limite (%dB). Soltanto i primi %dB saranno inviati.\n", BUFSIZE, BUFSIZE);
+		if (print) {
+			printf("\nLa dimensione del file supera il limite (%dB). Solo i primi %dB saranno inviati.\n", BUFSIZE, BUFSIZE);
+		}
 	}
 
 	fclose(ipf);
@@ -227,7 +229,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
-	printf("writeFile: invio %s!\n", cmd);
+	//printf("writeFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		free(buf);
@@ -248,7 +250,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	printf("writeFile: ho ricevuto: %s!\n", res);
+	//printf("writeFile: ho ricevuto: %s!\n", res);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -271,6 +273,12 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	// se il server ha dovuto espellere dei file per fare spazio, li ricevo tutti
 	else if (strcmp(res, "es") == 0) {
+		if (print && dirname) {
+			if (strcmp(dirname, "") != 0) {
+				printf("\nIl server ha espulso i seguenti file:\n");
+			}
+		}
+
 		if (receiveNFiles(dirname) == -1) {
 			free(buf);
 			free(content);
@@ -312,7 +320,7 @@ int closeFile(const char* pathname) {
 	strncat(cmd, pathname, strlen(pathname) + 1);
 
 	// invio il comando al server
-	printf("closeFile: invio %s!\n", cmd);
+	//printf("closeFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		errno = EREMOTEIO;
@@ -331,7 +339,7 @@ int closeFile(const char* pathname) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	printf("closeFile: ho ricevuto: %s!\n", res);
+	//printf("closeFile: ho ricevuto: %s!\n", res);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -422,7 +430,7 @@ int receiveNFiles(const char *dirname) {
 	char *filename = malloc(256);
 
 	// se e' stata passata una directory, usala per scriverci dentro i file ricevuti dal serevr
-	if (dirname) {
+	if (dirname && strcmp(dirname, "") != 0) {
 		strncpy(dir, dirname, strlen(dirname)+1);
 
 		if (dir[strlen(dir)] != '/') {
@@ -442,12 +450,15 @@ int receiveNFiles(const char *dirname) {
 		}
 
 		strncpy(filepath, buf, BUFSIZE);
-		printf("receiveNFiles: ho ricevuto filepath = %s!\n", filepath);
 
 		// se ho finito di ricevere file, esci
 		if (strcmp(filepath, ".FINE") == 0) {
 			fine = 1;
 			break;
+		}
+
+		if (print && strcmp(dir, "") != 0) {
+			printf("%s", filepath);
 		}
 
 		// poi ricevo la dimensione del file...
@@ -459,7 +470,11 @@ int receiveNFiles(const char *dirname) {
 		}
 
 		memcpy(&size, buf, sizeof(size_t));
-		printf("Ho ricevuto size = %ld\n", size);
+
+		if (print && strcmp(dir, "") != 0) {
+			printf("\tDimensione: %ldB\t", size);
+		}
+		//printf("Ho ricevuto size = %ld\n", size);
 
 		content = malloc(size);
 
@@ -471,11 +486,11 @@ int receiveNFiles(const char *dirname) {
 			return -1;
 		}
 
-		printf("Ho ricevuto il contenuto!\n");
+		//printf("Ho ricevuto il contenuto!\n");
 
 		// se il client ha specificato una cartella, vi scrivo dentro il file appena ricevuto
 		if (strcmp(dir, "") != 0) {
-			printf("SCRITTURA SU FILE\n");
+			//printf("SCRITTURA SU FILE\n");
 			memset(filename, '\0', 256);
 			strncpy(filename, filepath, strlen(filepath)+1);
 			char fullpath[512] = "";
@@ -494,12 +509,12 @@ int receiveNFiles(const char *dirname) {
 				i++;
 			}
 
-			printf("Dir: %s Filename: %s Fullpath: %s\n", dir, filename, fullpath);
+			//printf("Dir: %s Filename: %s Fullpath: %s\n", dir, filename, fullpath);
 			strncat(fullpath, filename, 256);
-			printf("Voglio scrivere %ld bytes in %s\n", size, fullpath);
+			//printf("Voglio scrivere %ld bytes in %s\n", size, fullpath);
 		    FILE* opf;
 		    if ((opf = fopen(fullpath, "w")) == NULL) {
-		    	perror("fopen");
+		    	//perror("fopen");
 		    	free(content);
 		    	free(filename);
 		    	free(buf);
@@ -507,7 +522,7 @@ int receiveNFiles(const char *dirname) {
 		    }
 		    
 		    if (fwrite(content, 1, size, opf) == -1) {
-		    	perror("fwrite");
+		    	//perror("fwrite");
 		    	free(content);
 		    	free(filename);
 		    	free(buf);
@@ -515,7 +530,6 @@ int receiveNFiles(const char *dirname) {
 		    }
 
 		    fclose(opf);
-		    printf("FINE SCRITTURA SU FILE\n");
 		}
 		
 	    free(content);
@@ -525,4 +539,14 @@ int receiveNFiles(const char *dirname) {
 	free(buf);
 
 	return 0;
+}
+
+void printInfo(int p) {
+	if (p) {
+		print = 1;
+	}
+
+	else {
+		print = 0;
+	}
 }

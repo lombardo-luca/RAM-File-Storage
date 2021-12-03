@@ -24,10 +24,10 @@ typedef struct struct_cmd {
 } cmdT;
 
 int addCmd(cmdT **cmdList, char cmd, char *arg);
-int execute(cmdT *cmdList);
+int execute(cmdT *cmdList, int print);
 int destroyCmdList(cmdT *cmdList);
 int cmd_f(char* socket);
-int cmd_W(char *filelist, char *Directory);
+int cmd_W(char *filelist, char *Directory, int print);
 
 void testOpenFile() {
 	printf("INIZIO TEST OPENFILE\n");
@@ -120,7 +120,7 @@ int main(int argc, char* argv[]) {
 	} 
 
 	int opt;
-	int f = 0, h = 0;
+	int f = 0, h = 0, p = 0;	// variabili per tenere traccia dei comandi che possono essere utilizzati solo una volta
 	char args[256];
 
 	// creo la lista di comandi
@@ -128,28 +128,49 @@ int main(int argc, char* argv[]) {
 	cmdList = calloc(1, sizeof(cmdT));
 	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hf:t:W:D:")) != -1) {
+	while ((opt = getopt(argc, argv, "hpf:t:W:D:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
 				if (h) {
 					printf("Il comando -h puo' essere usato solo una volta.\n");
-					break;
+					destroyCmdList(cmdList);
+					return 1;
 				}
 
-				addCmd(&cmdList, opt, "");
-				h = 1;
+				else {
+					addCmd(&cmdList, opt, "");
+					h = 1;
+				}
 				break;
 			
 			// specifica il nome del socket AF_UNIX a cui connettersi
 			case 'f':
 				if (f) {
 					printf("Il comando -f puo' essere usato solo una volta.\n");
-					break;
+					destroyCmdList(cmdList);
+					return 1;
 				}
 
-				addCmd(&cmdList, opt, optarg);
-				f = 1;
+				else {
+					memset(args, '\0', 256);
+					strncpy(args, optarg, strlen(optarg)+1);
+					addCmd(&cmdList, opt, optarg);
+					f = 1;
+				}
+				break;
+
+			case 'p':
+				if (p) {
+					printf("Il comando -p puo' essere usato solo una volta.\n");
+					destroyCmdList(cmdList);
+					return 1;
+				}
+
+				else {
+					printInfo(1);
+					p = 1;
+				}
 				break;
 
 			case 't':	// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
@@ -166,7 +187,7 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	if (execute(cmdList) == -1) {
+	if (execute(cmdList, p) == -1) {
 		perror("execute");
 		return 1;
 	}
@@ -229,16 +250,19 @@ int addCmd(cmdT **cmdList, char cmd, char *arg) {
 }
 
 // esegue tutti i comandi nella lista, uno alla volta
-int execute(cmdT *cmdList) {
+int execute(cmdT *cmdList, int print) {
 	// controllo la validita' dell'argomento
 	if (!cmdList) {
 		errno = EINVAL;
 		return -1;
 	}
 
+	int ok = 1;			// esito del comando
 	cmdT *temp = NULL;
 	temp = cmdList;
 	char sock[256];		// socket che viene impostato con il comando -f
+	int w = 0;			// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
+	char Dir[256] = "";	// cartella su cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
 
 	// variabili per gestire il comando -t
 	struct timespec tim1, tim2;
@@ -248,26 +272,40 @@ int execute(cmdT *cmdList) {
 	double msec = 0;
 	long num = 0;
 
-	int w = 0;	// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
-
 	while(temp) {
 		switch (temp->cmd) {
 			// stampa il messaggio di aiuto
 			case 'h':
 				w = 0;
-				printf("Ecco tutte le opzioni accettate ecc... TO-DO\n");
+				printf("\nMessaggio di aiuto... TO-DO");
 				break;
 
 			// connettiti al socket AF_UNIX specificato
 			case 'f':
 				w = 0;
-				printf("DEBUG: Nome socket: %s\n", temp->arg);
 				strncpy(sock, temp->arg, strlen(temp->arg)+1);
 
 				if (cmd_f(temp->arg) != 0) {
-					perror("cmd_f");
+					perror("f");
+					ok = 0;
 				}
 
+				else {
+					ok = 1;
+				}
+
+				// controllo se devo stampare su stdout
+				if (print) {
+					printf("\nf - Connessione al socket: %s\t", sock);
+
+					if (ok) {
+						printf("Esito: ok\n");
+					}
+
+					else {
+						printf("Esito: errore\n");
+					}
+				}
 				break;
 
 			// imposto il tempo che intercorre tra l’invio di due richieste successive al server
@@ -287,24 +325,28 @@ int execute(cmdT *cmdList) {
 
 				tim1.tv_sec = sec;
 				tim1.tv_nsec = msec * 1000000;
-				printf("DEBUG: secondi = %ld nanosec = %ld\n", tim1.tv_sec, tim1.tv_nsec);
+
+				// controllo se devo stampare su stdout
+				if (print) {
+					printf("\nt - Tempo fra due richieste: %.0lf ms\tEsito: ok\n", msec);
+				}
 				break;
 
 			// lista di nomi di file da scrivere nel server separati da virgole
 			case 'W':
-				printf("DEBUG: lista file da scrivere: %s\n", temp->arg);
-				char Dir[256] = "";
+				memset(Dir, '\0', 256);
 				w = 1;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'D') {
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
+						printf("\nD - Cartella per le scritture: %s\tEsito: ok\n", Dir);
 					}
 				}
 
-				if (cmd_W(temp->arg, Dir) != 0) {
-					perror("cmd_w");
+				if (cmd_W(temp->arg, Dir, print) != 0) {
+					perror("W");
 				}
 
 				break;
@@ -313,7 +355,7 @@ int execute(cmdT *cmdList) {
 			case 'D':
 				// se il comando precedentemente non era una scrittura (-w o -W), errore
 				if (!w) {
-					printf("Errore: l'opzione -D deve essere usata congiuntamente all'opzione -w o -W.\n");
+					printf("\nErrore: l'opzione -D deve essere usata congiuntamente all'opzione -w o -W.\n");
 				}
 
 				w = 0;
@@ -327,6 +369,7 @@ int execute(cmdT *cmdList) {
 		nanosleep(&tim1, &tim2);
 	}
 
+	printf("\n");
 	return 0;
 }
 
@@ -364,19 +407,14 @@ int cmd_f(char* socket) {
 
 	errno = 0;
 	if (openConnection(socket, 100, ts) != 0) {
-		perror("openConnection");
 		return -1;
-	}
-
-	else {
-		printf("cmd_f: connessione avvenuta con successo.\n");
 	}
 
 	return 0;
 }
 
 // scrivi una lista di file sul server
-int cmd_W(char *filelist, char *Directory) {
+int cmd_W(char *filelist, char *Directory, int print) {
 	if (!filelist || !Directory) {
 		errno = EINVAL;
 		return -1;
@@ -385,33 +423,49 @@ int cmd_W(char *filelist, char *Directory) {
 	// parso la lista di file da scrivere
 	char *token = NULL, *save = NULL;
 	token = strtok_r(filelist, ",", &save);
+	int ok = 1;
+
+	printf("\nW - Scrivo i seguenti file sul server:");
 
 	// per ogni file nella lista...
 	while (token != NULL) {
-		printf("cmd_w: file: %s\n", token);
+		ok = 1;
+		printf("\n%-20s", token); 
+
 		// apro il file
 		if (openFile(token, 1) == -1) {
-			perror("openFile");
-
-			return -1;
+			ok = 0;
 		}
 
 		// scrivo il contenuto del file sul server
-		if (writeFile(token, Directory) == -1) {
-			perror("writeFile");
-
-			return -1;
+		if (ok && writeFile(token, Directory) == -1) {
+			ok = 0;
 		}
 
 		// chiudo il file
-		if (closeFile(token) == -1) {
-			perror("closeFile");
+		if (ok && closeFile(token) == -1) {
+			ok = 0;
+		}
 
-			return -1;
+		printf("\nEsito: "); 
+
+		if (ok) {
+			printf("ok");
+		}
+		
+		else {
+			printf("errore");
 		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
 
-	return 0;
+	printf("\n");
+	if (ok) {
+		return 0;
+	}
+
+	else {
+		return -1;
+	}
 }

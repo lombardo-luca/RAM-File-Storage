@@ -53,3 +53,4 @@ int closeFile(const char *pathname);
 // Funzioni ausiliarie
 int receiveFile(const char *dirname);
 int receiveNFiles(const char *dirname);
+void printInfo(int p);
