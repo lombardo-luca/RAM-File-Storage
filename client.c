@@ -27,7 +27,7 @@ int addCmd(cmdT **cmdList, char cmd, char *arg);
 int execute(cmdT *cmdList);
 int destroyCmdList(cmdT *cmdList);
 int cmd_f(char* socket);
-int cmd_W(char *filelist);
+int cmd_W(char *filelist, char *Directory);
 
 void testOpenFile() {
 	printf("INIZIO TEST OPENFILE\n");
@@ -154,13 +154,10 @@ int main(int argc, char* argv[]) {
 
 			case 't':	// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
 			case 'W':	// lista di nomi di file da scrivere nel server separati da virgole
+			case 'D':	// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
 				memset(args, '\0', 256);
 				strncpy(args, optarg, strlen(optarg)+1);
 				addCmd(&cmdList, opt, args);
-				break;
-
-			// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
-			case 'D':
 				break;
 
 			// argomento non riconosciuto
@@ -251,26 +248,31 @@ int execute(cmdT *cmdList) {
 	double msec = 0;
 	long num = 0;
 
+	int w = 0;	// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
+
 	while(temp) {
 		switch (temp->cmd) {
 			// stampa il messaggio di aiuto
 			case 'h':
+				w = 0;
 				printf("Ecco tutte le opzioni accettate ecc... TO-DO\n");
 				break;
 
 			// connettiti al socket AF_UNIX specificato
 			case 'f':
+				w = 0;
 				printf("DEBUG: Nome socket: %s\n", temp->arg);
 				strncpy(sock, temp->arg, strlen(temp->arg)+1);
 
 				if (cmd_f(temp->arg) != 0) {
-					printf("Errore nell'esecuzione del comando -f.\n");
+					perror("cmd_f");
 				}
 
 				break;
 
 			// imposto il tempo che intercorre tra l’invio di due richieste successive al server
 			case 't':
+				w = 0;
 				num = strtol(temp->arg, NULL, 0);
 
 				// converto i msec inseriti dall'utente in secondi e nanosecondi per la nanosleep
@@ -291,10 +293,30 @@ int execute(cmdT *cmdList) {
 			// lista di nomi di file da scrivere nel server separati da virgole
 			case 'W':
 				printf("DEBUG: lista file da scrivere: %s\n", temp->arg);
+				char Dir[256] = "";
+				w = 1;
 
-				if (cmd_W(temp->arg) != 0) {
-					printf("Errore nell'esecuzione del comando -W\n");
+				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
+				if (temp->next) {
+					if ((temp->next)->cmd == 'D') {
+						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
+					}
 				}
+
+				if (cmd_W(temp->arg, Dir) != 0) {
+					perror("cmd_w");
+				}
+
+				break;
+
+			// imposta la cartella dove scrivere i file che il server rimuove a seguito di capacity misses in scrittura
+			case 'D':
+				// se il comando precedentemente non era una scrittura (-w o -W), errore
+				if (!w) {
+					printf("Errore: l'opzione -D deve essere usata congiuntamente all'opzione -w o -W.\n");
+				}
+
+				w = 0;
 
 				break;
 		}
@@ -332,6 +354,10 @@ int destroyCmdList(cmdT *cmdList) {
 
 // connettiti al socket specificato
 int cmd_f(char* socket) {
+	if (!socket) {
+		errno = EINVAL;
+	}
+
 	struct timespec ts;
 	ts.tv_sec = 2;
 	ts.tv_nsec = 550;
@@ -350,7 +376,12 @@ int cmd_f(char* socket) {
 }
 
 // scrivi una lista di file sul server
-int cmd_W(char *filelist) {
+int cmd_W(char *filelist, char *Directory) {
+	if (!filelist || !Directory) {
+		errno = EINVAL;
+		return -1;
+	}
+
 	// parso la lista di file da scrivere
 	char *token = NULL, *save = NULL;
 	token = strtok_r(filelist, ",", &save);
@@ -366,7 +397,7 @@ int cmd_W(char *filelist) {
 		}
 
 		// scrivo il contenuto del file sul server
-		if (writeFile(token, NULL) == -1) {
+		if (writeFile(token, Directory) == -1) {
 			perror("writeFile");
 
 			return -1;

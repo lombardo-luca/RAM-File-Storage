@@ -271,7 +271,7 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	// se il server ha dovuto espellere dei file per fare spazio, li ricevo tutti
 	else if (strcmp(res, "es") == 0) {
-		if (receiveNFiles(NULL) == -1) {
+		if (receiveNFiles(dirname) == -1) {
 			free(buf);
 			free(content);
 			return -1;
@@ -358,7 +358,7 @@ int closeFile(const char* pathname) {
 }
 
 // funzione ausiliaria che riceve un file dal server
-int receiveFile(char *dirname) {
+int receiveFile(const char *dirname) {
 	void *buf = malloc(BUFSIZE);
 	memset(buf, 0, BUFSIZE);
 	char filepath[BUFSIZE];
@@ -412,13 +412,24 @@ int receiveFile(char *dirname) {
 }
 
 // funzione ausiliaria che riceve N files dal server
-int receiveNFiles(char *dirname) {
+int receiveNFiles(const char *dirname) {
 	void *buf = NULL;
 	buf = malloc(BUFSIZE);
 	char filepath[BUFSIZE];
 	size_t size;
 	int fine = 0;
+	char dir[256] = "";
+	char *filename = malloc(256);
 
+	// se e' stata passata una directory, usala per scriverci dentro i file ricevuti dal serevr
+	if (dirname) {
+		strncpy(dir, dirname, strlen(dirname)+1);
+
+		if (dir[strlen(dir)] != '/') {
+			dir[strlen(dir)] = '/';
+		}
+	}
+	
 	while (!fine) {
 		memset(buf, 0, BUFSIZE);
 		void *content = NULL;
@@ -462,16 +473,55 @@ int receiveNFiles(char *dirname) {
 
 		printf("Ho ricevuto il contenuto!\n");
 
-		printf("SCRITTURA SU FILE\n");
-	    FILE* opf = fopen("testscritturaCLIENT", "w");
-	    printf("Voglio scrivere %ld bytes\n", size);
-	    fwrite(content, 1, size, opf);
-	    fclose(opf);
-	    printf("FINE SCRITTURA SU FILE\n");
+		// se il client ha specificato una cartella, vi scrivo dentro il file appena ricevuto
+		if (strcmp(dir, "") != 0) {
+			printf("SCRITTURA SU FILE\n");
+			memset(filename, '\0', 256);
+			strncpy(filename, filepath, strlen(filepath)+1);
+			char fullpath[512] = "";
+			strncpy(fullpath, dir, 256);
 
+			/**
+			 * Se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
+			 * Questo può accadere poiché il server memorizza i file utilizzando il loro path assoluto come identificatore.
+			*/
+			int i = 0;
+			while (filename[i]) {
+				if (filename[i] == '/') {
+					filename[i] = '-';
+				}
+
+				i++;
+			}
+
+			printf("Dir: %s Filename: %s Fullpath: %s\n", dir, filename, fullpath);
+			strncat(fullpath, filename, 256);
+			printf("Voglio scrivere %ld bytes in %s\n", size, fullpath);
+		    FILE* opf;
+		    if ((opf = fopen(fullpath, "w")) == NULL) {
+		    	perror("fopen");
+		    	free(content);
+		    	free(filename);
+		    	free(buf);
+		    	return -1;
+		    }
+		    
+		    if (fwrite(content, 1, size, opf) == -1) {
+		    	perror("fwrite");
+		    	free(content);
+		    	free(filename);
+		    	free(buf);
+		    	return -1;
+		    }
+
+		    fclose(opf);
+		    printf("FINE SCRITTURA SU FILE\n");
+		}
+		
 	    free(content);
 	}
 
+	free(filename);
 	free(buf);
 
 	return 0;

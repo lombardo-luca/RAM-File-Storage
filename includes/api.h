@@ -51,5 +51,5 @@ int writeFile(const char* pathname, const char* dirname);
 int closeFile(const char *pathname);
 
 // Funzioni ausiliarie
-int receiveFile(char *dirname);
-int receiveNFiles(char *dirname);
+int receiveFile(const char *dirname);
+int receiveNFiles(const char *dirname);

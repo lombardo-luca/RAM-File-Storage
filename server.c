@@ -400,7 +400,10 @@ int main(int argc, char *argv[]) {
 					else if (fd == requestPipe[0]) {
 						// leggo il descrittore dalla pipe
 						int fdr;
-						readn(requestPipe[0], &fdr, sizeof(int));
+						if (readn(requestPipe[0], &fdr, sizeof(int)) == -1) {
+							perror("readn");
+							break;
+						}
 
 						// se il worker thread ha chiuso la connessione...
 						if (fdr == -1) {
@@ -429,7 +432,10 @@ int main(int argc, char *argv[]) {
 					o solo smettere di accettare nuove connessioni */
 					else if (fd == sigPipe[0]) {
 						int code;
-						readn(sigPipe[0], &code, sizeof(int));
+						if (readn(sigPipe[0], &code, sizeof(int)) == -1) {
+							perror("readn");
+							break;
+						}
 
 						if (code == 0) {
 							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
@@ -578,7 +584,11 @@ static void serverThread(void *par) {
 		close(fd_c);
 
 		int close = -1;
-		writen(pipe, &close, sizeof(int));	// comunico al manager che la richiesta è stata servita
+
+		// comunico al manager che la richiesta è stata servita
+		if (writen(pipe, &close, sizeof(int)) == -1) {
+			perror("writen");
+		}	
 
 		goto cleanup;
 	}
@@ -592,7 +602,10 @@ static void serverThread(void *par) {
 
 	memset(buf, '\0', CMDSIZE);
 
-	writen(pipe, &fd_c, sizeof(int));	// comunico al manager che la richiesta è stata servita
+	// comunico al manager che la richiesta è stata servita
+	if (writen(pipe, &fd_c, sizeof(int)) == -1) {
+		perror("writen");
+	}	
 
 	// ripulisci la memoria
 	cleanup: {
@@ -629,13 +642,17 @@ static void* sigThread(void *par) {
 			case SIGHUP:
 				code = 0;
 				// notifico il thread manager di smettere di accettare nuove connessioni in entrata
-				writen(fd_pipe, &code, sizeof(int));	
+				if (writen(fd_pipe, &code, sizeof(int)) == -1) {
+					perror("writen");
+				}	
 				break;
 			case SIGINT:
 			case SIGQUIT:
 				code = 1;
 				// notifico il thread manager di terminare il server il prima possibile
-				writen(fd_pipe, &code, sizeof(int));	
+				if (writen(fd_pipe, &code, sizeof(int)) == -1) {
+					perror("writen");
+				}	
 				return NULL;
 			default:
 				break;
