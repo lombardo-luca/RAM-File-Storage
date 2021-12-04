@@ -30,6 +30,13 @@ int cmd_f(char* socket);
 int cmd_W(char *filelist, char *Directory, int print);
 
 void testOpenFile() {
+		struct timespec ts;
+	ts.tv_sec = 2;
+	ts.tv_nsec = 550;
+
+	if (openConnection("mysock", 100, ts) != 0) {
+		return;
+	}
 	printf("INIZIO TEST OPENFILE\n");
 	printf("Usare maxFiles = 3, un file gia' dentro il server\n");
 	printf("Creo un file non lockato. Dovrebbe dare OK.\n");
@@ -187,6 +194,37 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
+	/*
+	struct timespec ts;
+	ts.tv_sec = 2;
+	ts.tv_nsec = 550;
+
+	errno = 0;
+	if (openConnection("mysock", 100, ts) != 0) {
+		return -1;
+	}
+
+	char *str = malloc(10);
+	for (int i = strtol(argv[1], NULL, 0); i < strtol(argv[1], NULL, 0)+10; i++) {
+		sprintf(str, "%d", i);
+		printf("Creo un file.\n");
+		if (openFile(str, 1) == -1) {
+			perror("openFile");
+		}
+		
+		sleep(1);
+
+		if (closeFile(str) == -1) {
+			perror("closeFile");
+		}
+	}
+
+	free(str);
+	*/
+
+	//testOpenFile();
+	//testWriteFile();
+
 	if (execute(cmdList, p) == -1) {
 		perror("execute");
 		return 1;
@@ -196,9 +234,6 @@ int main(int argc, char* argv[]) {
 		perror("destroyCmdList");
 		return 1;
 	}
-
-	//testOpenFile();
-	//testWriteFile();
 
 	return 0;
 }
@@ -260,9 +295,9 @@ int execute(cmdT *cmdList, int print) {
 	int ok = 1;			// esito del comando
 	cmdT *temp = NULL;
 	temp = cmdList;
-	char sock[256];		// socket che viene impostato con il comando -f
-	int w = 0;			// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
-	char Dir[256] = "";	// cartella su cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
+	char sock[256] = "";	// socket che viene impostato con il comando -f
+	int w = 0;				// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
+	char Dir[256] = "";		// cartella su cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
 
 	// variabili per gestire il comando -t
 	struct timespec tim1, tim2;
@@ -328,7 +363,7 @@ int execute(cmdT *cmdList, int print) {
 
 				// controllo se devo stampare su stdout
 				if (print) {
-					printf("\nt - Tempo fra due richieste: %.0lf ms\tEsito: ok\n", msec);
+					printf("\nt - Tempo fra due richieste: %ld ms\tEsito: ok\n", num);
 				}
 				break;
 
@@ -370,6 +405,10 @@ int execute(cmdT *cmdList, int print) {
 	}
 
 	printf("\n");
+
+	if (strcmp(sock, "") != 0) {
+		closeConnection(sock);
+	}
 	return 0;
 }
 
@@ -434,16 +473,35 @@ int cmd_W(char *filelist, char *Directory, int print) {
 
 		// apro il file
 		if (openFile(token, 1) == -1) {
-			ok = 0;
+			perror("openFile esterna\n");
+			// se il file esiste gia', rifai la openFile senza O_CREATE
+			// TO-DO fare in modo di chiamare l'append in questo caso e non la writeFile
+			if (strcmp(strerror(errno), "File exists") == 0) {
+				if (openFile(token, 0) == -1) {
+					perror("openFile interna\n");
+					ok = 0;
+				}
+			}
+
+			else {
+				ok = 0;
+			}
 		}
+
+		printf("\nDEBUG openFile passata\n");
 
 		// scrivo il contenuto del file sul server
 		if (ok && writeFile(token, Directory) == -1) {
+			perror("writeFile\n");
 			ok = 0;
 		}
 
+		printf("\nDEBUG writeFile passata\n");
+
 		// chiudo il file
+		// TO-DO chiudere il file anche quando c'è un errore in writefile ma non in openfile...
 		if (ok && closeFile(token) == -1) {
+			perror("closeFile\n");
 			ok = 0;
 		}
 

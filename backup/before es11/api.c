@@ -447,55 +447,6 @@ int closeFile(const char* pathname) {
 	return 0;
 }
 
-/*
-int closeFile(const char* pathname) {
-	// controllo che il file da chiudere sia effettivamente aperto
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = ENOENT;
-		return -1;
-	}
-
-	char message[CMDSIZE];
-
-    char buffer[CMDSIZE];
-    memset(buffer,0,CMDSIZE);
-    sprintf(buffer, "closeFile:%s", pathname);
-    fflush(stdout);
-    printf("closeFile aspetto la writen\n");
-    fflush(stdout);
-    if(writen(fd_skt, buffer, CMDSIZE) == -1)
-    {
-        errno = EREMOTEIO;
-        return -1;
-    }
-    printf("closeFile aspetto la readn\n");
-    fflush(stdout);
-    if(readn(fd_skt, message, CMDSIZE) == -1)
-    {
-        errno = EREMOTEIO;
-        return -1;
-    }
-
-    char* token;
-    char* save = NULL;
-    token = strtok_r(message, ";", &save);
-
-    if (strcmp(token, "-1") == 0) // operazione terminata con fallimento
-    {
-        token = strtok_r(NULL,";", &save);
-        errno = (int)strtol(token, NULL, 10);
-        return -1;
-    }
-    else // operazione terminata con successo
-    {
-        printf("Operazione Completata : closeFile\n");
-        // aggiorno la variabile globale che tiene traccia del file aperto
-		strncpy(openedFile, "", 1);
-        return 0;
-    }
-}
-*/
-
 // funzione ausiliaria che riceve un file dal server
 int receiveFile(const char *dirname) {
 	void *buf = malloc(BUFSIZE);

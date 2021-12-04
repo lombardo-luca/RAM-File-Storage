@@ -388,13 +388,13 @@ int main(int argc, char *argv[]) {
 								return 1;
 							}
 
-							printf("Nuovo client connesso. fd_c = %d\n", fd_c);
+							printf("Nuovo client connesso.\n");
 							// Scrivo sul logFile
-							char newConStr[25] = "Nuovo client: ";
-							char fdStr[128];
-							snprintf(fdStr, sizeof(int), "%d", fd_c);
-							strncat(newConStr, fdStr, strlen(fdStr)+1);
-							strncat(newConStr, "\n", 2);
+							char newConStr[25] = "Nuovo client connesso.\n";
+							//char fdStr[128];
+							//snprintf(fdStr, sizeof(int), "%d", fd_c);
+							//strncat(newConStr, fdStr, strlen(fdStr)+1);
+							//strncat(newConStr, "\n", 2);
 						    if (fwrite(newConStr, 1, strlen(newConStr)+1, logFile) == -1) {
 						    	perror("fwrite");
 						    	return -1;
@@ -435,13 +435,6 @@ int main(int argc, char *argv[]) {
 								perror("coda pendenti piena");
 							}
 
-							if (t->args) {
-							free(t->args);
-							}
-							if (t) {
-								free(t);
-							}
-
 							close(fd_c);
 						}
 
@@ -465,7 +458,6 @@ int main(int argc, char *argv[]) {
 
 						// se il worker thread ha chiuso la connessione...
 						if (fdr == -1) {
-							printf("Il worker thread ha chiuso la connessione con un client.\n");
 							/*
 							FD_CLR(fdr, &set);
 							if (fdr == fd_max) {
@@ -484,15 +476,12 @@ int main(int argc, char *argv[]) {
 							break;
 						}
 
-						printf("Una richiesta singola del client %d e' stata servita.\n", fdr);
-						printf("Riaggiungo il client %d al set.\n", fdr);
 						// altrimenti riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
 						FD_SET(fdr, &set);
 
 						
 						if (fdr > fd_max) {
 							fd_max = fdr;
-							printf("Aggiorno fd_max = %d\n", fdr);
 						}
 						
 
@@ -530,11 +519,7 @@ int main(int argc, char *argv[]) {
 					// altrimenti è una richiesta di I/O da un client già connesso
 					else {
 						FD_CLR(fd, &set);
-
-						if (fd > fd_max) {
-							fd_max = fd;
-						}
-						//fd_max = update(set, fd_max);
+						fd_max = update(set, fd_max);
 
 						// creo la struct da passare come argomento al thread worker
 						threadT *t = malloc(sizeof(threadT));
@@ -568,13 +553,6 @@ int main(int argc, char *argv[]) {
 						// coda pendenti piena
 						else {
 							perror("coda pendenti piena");
-						}
-
-						if (t->args) {
-							free(t->args);
-						}
-						if (t) {
-							free(t);
 						}
 
 						close(fd);
@@ -686,11 +664,7 @@ static void serverThread(void *par) {
 		}	
 
 		// scrivo sul logFile
-		char closeConStr[64] = "Chiusa connessione con il client ";
-		char closeConnFdStr[32];
-		snprintf(closeConnFdStr, sizeof(fd_c), "%ld", fd_c);
-		strncat(closeConStr, closeConnFdStr, strlen(closeConnFdStr)+1);
-		strncat(closeConStr, ".\n", 3);
+		char closeConStr[36] = "Chiusa connessione con un client.\n";
 		if (fwrite(closeConStr, 1, strlen(closeConStr)+1, logFile) == -1) {
 			perror("fwrite");
 			goto cleanup;
@@ -711,21 +685,16 @@ static void serverThread(void *par) {
 	memset(buf, '\0', CMDSIZE);
 
 	// comunico al manager che la richiesta è stata servita
-	int fdInt = (int) fd_c;
-	if (writen(pipe, &fdInt, sizeof(int)) == -1) {
+	if (writen(pipe, &fd_c, sizeof(int)) == -1) {
 		perror("writen");
 	}	
 
 	// scrivo sul logFile
 	char workStr[128] = "Il thread ";
 	char tidStr[64];
-	char fdWorkStr[64];
 	snprintf(tidStr, sizeof(pthread_t), "%ld", tid);
-	snprintf(fdWorkStr, sizeof(fd_c), "%ld", fd_c);
 	strncat(workStr, tidStr, strlen(tidStr)+1);
-	strncat(workStr, " ha servito una richiesta del client ", 64);
-	strncat(workStr, fdWorkStr, strlen(fdWorkStr)+1);
-	strncat(workStr, ".\n", 3);
+	strncat(workStr, " ha servito una richiesta.\n", 31);
 	if (fwrite(workStr, 1, strlen(workStr)+1, logFile) == -1) {
 		perror("fwrite");
 	}

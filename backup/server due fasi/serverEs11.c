@@ -353,16 +353,14 @@ int main(int argc, char *argv[]) {
 	FD_ZERO(&tmpset);
 	FD_SET(fd_skt, &set);			// al set da ascoltare aggiungo: il listener,
 	FD_SET(sigPipe[0], &set);		// l'fd di lettura della pipe del sigThread,
-	FD_SET(requestPipe[0], &set);	// e quello della pipe dei worker
 
 	// controllo quale fd ha id maggiore
-	fd_max = fd_skt;
-	if (sigPipe[0] > fd_max) {
+	if (fd_skt > sigPipe[0]) {
 		fd_max = fd_skt;
 	}
 
-	if (requestPipe[0] > fd_max) {
-		fd_max = requestPipe[0];
+	else {
+		fd_max = sigPipe[0];
 	}
 
 	while (!quit) {
@@ -382,181 +380,33 @@ int main(int argc, char *argv[]) {
 				if (FD_ISSET(fd, &tmpset)) {
 					// se l'ho ricevuta da un sock connect, è una nuova richiesta di connessione
 					if (fd == fd_skt) {
-						if (!stopIncomingConnections) {
-							if ((fd_c = accept(fd_skt, NULL, 0)) == -1) {
-								perror("accept");
-								return 1;
-							}
-
-							printf("Nuovo client connesso. fd_c = %d\n", fd_c);
-							// Scrivo sul logFile
-							char newConStr[25] = "Nuovo client: ";
-							char fdStr[128];
-							snprintf(fdStr, sizeof(int), "%d", fd_c);
-							strncat(newConStr, fdStr, strlen(fdStr)+1);
-							strncat(newConStr, "\n", 2);
-						    if (fwrite(newConStr, 1, strlen(newConStr)+1, logFile) == -1) {
-						    	perror("fwrite");
-						    	return -1;
-						    }
-
-							// creo la struct da passare come argomento al thread worker
-							threadT *t = malloc(sizeof(threadT));
-							t->args = malloc(3*sizeof(long));
-							t->args[0] = fd_c;
-			    			t->args[1] = (long) &quit;
-			    			t->args[2] = (long) requestPipe[1];
-			    			t->queue = queue;
-			    			t->logFile = logFile;
-							int r = addToThreadPool(pool, serverThread, (void*) t);
-
-							/*
-							long* args = malloc(3*sizeof(long));
-							args[0] = fd_c;
-			    			args[1] = (long) &quit;
-			    			args[2] = (long) requestPipe[1];
-							int r = addToThreadPool(pool, serverThread, (void*) args);
-							*/
-
-							// task aggiunto alla pool con successo
-							if (r == 0) {
-								printf("Task aggiunto alla pool da una nuove connessione: %d\n", fd_c);
-								numberOfConnections++;
-								continue;
-							}
-
-							// errore interno
-							else if (r < 0) {
-								perror("addToThreadPool");
-							}
-
-							// coda pendenti piena
-							else {
-								perror("coda pendenti piena");
-							}
-
-							if (t->args) {
-							free(t->args);
-							}
-							if (t) {
-								free(t);
-							}
-
-							close(fd_c);
+						if ((fd_c = accept(fd_skt, NULL, 0)) == -1) {
+							perror("accept");
+							return 1;
 						}
 
-						else {
-							printf("Nuova connessione rifiutata: il server è in fase di terminazione.\n");
-							FD_CLR(fd, &set);
-							close(fd);
-						}
-
-						continue;
-					}
-
-					// se l'ho ricevuta dalla requestPipe, una richiesta singola è stata servita
-					else if (fd == requestPipe[0]) {
-						// leggo il descrittore dalla pipe
-						int fdr;
-						if (readn(requestPipe[0], &fdr, sizeof(int)) == -1) {
-							perror("readn");
-							break;
-						}
-
-						// se il worker thread ha chiuso la connessione...
-						if (fdr == -1) {
-							printf("Il worker thread ha chiuso la connessione con un client.\n");
-							/*
-							FD_CLR(fdr, &set);
-							if (fdr == fd_max) {
-								fd_max = update(set, fd_max);
-							}
-							*/
-
-							numberOfConnections--;
-							// ...controllo se devo terminare il server
-							if (stopIncomingConnections && numberOfConnections <= 0) {
-								printf("Non ci sono altri client connessi, termino...\n");
-								quit = 1;
-								pthread_cancel(st);	// termino il signalThread
-							}
-
-							break;
-						}
-
-						printf("Una richiesta singola del client %d e' stata servita.\n", fdr);
-						printf("Riaggiungo il client %d al set.\n", fdr);
-						// altrimenti riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
-						FD_SET(fdr, &set);
-
-						
-						if (fdr > fd_max) {
-							fd_max = fdr;
-							printf("Aggiorno fd_max = %d\n", fdr);
-						}
-						
-
-						//fd_max = update(set, fd_max);
-
-						continue;	
-					}
-
-					/* se l'ho ricevuta dalla sigPipe, controllo se devo terminare immediatamente 
-					o solo smettere di accettare nuove connessioni */
-					else if (fd == sigPipe[0]) {
-						int code;
-						if (readn(sigPipe[0], &code, sizeof(int)) == -1) {
-							perror("readn");
-							break;
-						}
-
-						if (code == 0) {
-							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
-							stopIncomingConnections = 1;
-						}
-
-						else if (code == 1) {
-							printf("Ricevuto un segnale di terminazione immediata.\n");
-							quit = 1;
-						}
-
-						else {
-							perror("Errore: codice inviato dal sigThread invalido.\n");
-						}
-						
-						break;
-					}
-
-					// altrimenti è una richiesta di I/O da un client già connesso
-					else {
-						FD_CLR(fd, &set);
-
-						if (fd > fd_max) {
-							fd_max = fd;
-						}
-						//fd_max = update(set, fd_max);
+						printf("Nuovo client connesso.\n");
+						// Scrivo sul logFile
+						char newConStr[25] = "Nuovo client connesso.\n";
+					    if (fwrite(newConStr, 1, strlen(newConStr)+1, logFile) == -1) {
+					    	perror("fwrite");
+					    	return -1;
+					    }
 
 						// creo la struct da passare come argomento al thread worker
 						threadT *t = malloc(sizeof(threadT));
 						t->args = malloc(3*sizeof(long));
-						t->args[0] = fd;
-			    		t->args[1] = (long) &quit;
-			    		t->args[2] = (long) requestPipe[1];
-			    		t->queue = queue;
-			    		t->logFile = logFile;
+						t->args[0] = fd_c;
+		    			t->args[1] = (long) &quit;
+		    			t->args[2] = (long) requestPipe[1];
+		    			t->queue = queue;
+		    			t->logFile = logFile;
 						int r = addToThreadPool(pool, serverThread, (void*) t);
-
-						/*
-						long* args = malloc(3*sizeof(long));
-						args[0] = fd;
-		    			args[1] = (long) &quit;
-		    			args[2] = (long) requestPipe[1];
-						int r = addToThreadPool(pool, serverThread, (void*) args);
-						*/
 
 						// task aggiunto alla pool con successo
 						if (r == 0) {
-							printf("Task aggiunto alla pool da un client gia' connesso: %d\n", fd);
+							printf("SERVER: task aggiunto alla pool.\n");
+							numberOfConnections++;
 							continue;
 						}
 
@@ -570,17 +420,19 @@ int main(int argc, char *argv[]) {
 							perror("coda pendenti piena");
 						}
 
-						if (t->args) {
-							free(t->args);
-						}
-						if (t) {
-							free(t);
-						}
-
-						close(fd);
+						//close(fd_c);
 
 						continue;
 					}
+
+					/* se l'ho ricevuta dalla sigPipe, controllo se devo terminare immediatamente 
+					o solo smettere di accettare nuove connessioni */
+					else if (fd == sigPipe[0]) {
+						printf("Ricevuto un segnale di terminazione immediata.\n");
+						quit = 1;
+						break;
+					}
+
 				}	
 			}	
 		}
@@ -654,81 +506,56 @@ static void serverThread(void *par) {
 		    }
 		}
 
-		else {
-			break;
+		char buf[CMDSIZE];
+		memset(buf, '\0', CMDSIZE);
+
+		int n;
+		if ((n = read(fd_c, buf, CMDSIZE)) == -1) {	// leggi il messaggio del client	
+			perror("read");
+
+			goto cleanup;
+		}
+
+		if (n == 0 || strcmp(buf, "quit\n") == 0) {
+			printf("SERVER THREAD: chiudo la connessione col client\n");
+			fflush(stdout);
+
+			// scrivo sul logFile
+			char closeConStr[36] = "Chiusa connessione con un client.\n";
+			if (fwrite(closeConStr, 1, strlen(closeConStr)+1, logFile) == -1) {
+				perror("fwrite");
+				goto cleanup;
+			}
+
+			goto cleanup;
+		}
+
+		printf("SERVER THREAD: ho ricevuto %s!\n", buf);
+		fflush(stdout);
+
+		if (parser(buf, queue, fd_c) == -1) {
+			printf("SERVER THREAD: errore parser.\n");
+			fflush(stdout);
+			goto cleanup;
+		}
+
+		memset(buf, '\0', CMDSIZE);
+
+		// scrivo sul logFile
+		char workStr[128] = "Il thread ";
+		char tidStr[64];
+		snprintf(tidStr, sizeof(pthread_t), "%ld", tid);
+		strncat(workStr, tidStr, strlen(tidStr)+1);
+		strncat(workStr, " ha servito una richiesta.\n", 31);
+		if (fwrite(workStr, 1, strlen(workStr)+1, logFile) == -1) {
+			perror("fwrite");
 		}
 	}
 
 	//printf("SERVER THREAD: select ok.\n");
 	//fflush(stdout);
 
-	char buf[CMDSIZE];
-	memset(buf, '\0', CMDSIZE);
-
-	int n;
-	if ((n = read(fd_c, buf, CMDSIZE)) == -1) {	// leggi il messaggio del client	
-		perror("read");
-
-		goto cleanup;
-	}
-
-	if (n == 0 || strcmp(buf, "quit\n") == 0) {
-		printf("SERVER THREAD: chiudo la connessione col client\n");
-		fflush(stdout);
-		close(fd_c);
-
-		int close = -1;
-
-		// comunico al manager che ho chiuso la connessione
-		if (writen(pipe, &close, sizeof(int)) == -1) {
-			perror("writen");
-			goto cleanup;
-		}	
-
-		// scrivo sul logFile
-		char closeConStr[64] = "Chiusa connessione con il client ";
-		char closeConnFdStr[32];
-		snprintf(closeConnFdStr, sizeof(fd_c), "%ld", fd_c);
-		strncat(closeConStr, closeConnFdStr, strlen(closeConnFdStr)+1);
-		strncat(closeConStr, ".\n", 3);
-		if (fwrite(closeConStr, 1, strlen(closeConStr)+1, logFile) == -1) {
-			perror("fwrite");
-			goto cleanup;
-		}
-
-		goto cleanup;
-	}
-
-	printf("SERVER THREAD: ho ricevuto %s! dal client %ld\n", buf, fd_c);
-	fflush(stdout);
-
-	if (parser(buf, queue, fd_c) == -1) {
-		printf("SERVER THREAD: errore parser.\n");
-		fflush(stdout);
-		goto cleanup;
-	}
-
-	memset(buf, '\0', CMDSIZE);
-
-	// comunico al manager che la richiesta è stata servita
-	int fdInt = (int) fd_c;
-	if (writen(pipe, &fdInt, sizeof(int)) == -1) {
-		perror("writen");
-	}	
-
-	// scrivo sul logFile
-	char workStr[128] = "Il thread ";
-	char tidStr[64];
-	char fdWorkStr[64];
-	snprintf(tidStr, sizeof(pthread_t), "%ld", tid);
-	snprintf(fdWorkStr, sizeof(fd_c), "%ld", fd_c);
-	strncat(workStr, tidStr, strlen(tidStr)+1);
-	strncat(workStr, " ha servito una richiesta del client ", 64);
-	strncat(workStr, fdWorkStr, strlen(fdWorkStr)+1);
-	strncat(workStr, ".\n", 3);
-	if (fwrite(workStr, 1, strlen(workStr)+1, logFile) == -1) {
-		perror("fwrite");
-	}
+	
 
 	// ripulisci la memoria
 	cleanup: {
@@ -738,6 +565,8 @@ static void serverThread(void *par) {
 			free(args);
 		}
 	}
+
+	close(fd_c);
 }
 
 static void* sigThread(void *par) {
@@ -750,39 +579,19 @@ static void* sigThread(void *par) {
 	sigaddset(&set, SIGQUIT);
 	sigaddset(&set, SIGHUP);
 
-	while (1) {
-		int sig;
-		int code;
-		pthread_sigmask(SIG_SETMASK, &set, NULL);
+	int sig;
 
-		if (sigwait(&set, &sig) != 0) {
-			perror("sigwait.\n");
-			return (void*) 1;
-		}
+	pthread_sigmask(SIG_SETMASK, &set, NULL);
 
-		printf("Ho ricevuto segnale %d\n", sig);
-		fflush(stdout);
-
-		switch (sig) {
-			case SIGHUP:
-				code = 0;
-				// notifico il thread manager di smettere di accettare nuove connessioni in entrata
-				if (writen(fd_pipe, &code, sizeof(int)) == -1) {
-					perror("writen");
-				}	
-				break;
-			case SIGINT:
-			case SIGQUIT:
-				code = 1;
-				// notifico il thread manager di terminare il server il prima possibile
-				if (writen(fd_pipe, &code, sizeof(int)) == -1) {
-					perror("writen");
-				}	
-				return NULL;
-			default:
-				break;
-		}
+	if (sigwait(&set, &sig) != 0) {
+		perror("sigwait.\n");
+		return (void*) 1;
 	}
+
+	printf("Ho ricevuto segnale %d\n", sig);
+	close(fd_pipe);	// notifico il thread manager della ricezione del segnale
+
+	return (void*) 0;
 }
 
 int update(fd_set set, int fdmax) {
@@ -792,8 +601,6 @@ int update(fd_set set, int fdmax) {
 		}
 	}
 
-	// TO-DO rimuovere questo debug
-	assert(1 == 0);
 	return -1;
 }
 
@@ -1219,34 +1026,6 @@ void closeFile(char *filepath, queueT* queue, long fd_c) {
 	free(buf);
 	free(res);
 }
-
-/*
-void closeFile(char* path, queueT* queue, long fd_c)
-{
-	char out[CMDSIZE];
-    memset(out,0,CMDSIZE);
-	// esecuzione della richiesta
-	int res = 0;
-	int log_res;
-	
-	printf("faccio finta di chiudere il file\n");
-
-	if (res == -1)
-	{
-	    log_res = 0;
-	    sprintf(out,"-1;%d;",errno);
-	}
-	else
-	{
-	    log_res = 1;
-	    sprintf(out,"0");
-	}
-	if (writen(fd_c,out,CMDSIZE) == -1)
-	{
-	    perror("writen");
-	}
-}
-*/
 
 // funzione ausiliaria che invia un file al client
 int sendFile(fileT *f, long fd_c) {

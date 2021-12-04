@@ -17,7 +17,9 @@
 
 #include <partialIO.h>
 
-ssize_t  /* Read "n" bytes from a descriptor */
+#include <errno.h>
+
+ssize_t  // Read "n" bytes from a descriptor 
 readn(int fd, void *ptr, size_t n) {  
    size_t   nleft;
    ssize_t  nread;
@@ -25,16 +27,16 @@ readn(int fd, void *ptr, size_t n) {
    nleft = n;
    while (nleft > 0) {
      if((nread = read(fd, ptr, nleft)) < 0) {
-        if (nleft == n) return -1; /* error, return -1 */
-        else break; /* error, return amount read so far */
-     } else if (nread == 0) break; /* EOF */
+        if (nleft == n) return -1; // error, return -1 
+        else break; // error, return amount read so far 
+     } else if (nread == 0) break; // EOF 
      nleft -= nread;
      ptr   += nread;
    }
-   return(n - nleft); /* return >= 0 */
+   return(n - nleft); // return >= 0 
 }
  
-ssize_t  /* Write "n" bytes to a descriptor */
+ssize_t  // Write "n" bytes to a descriptor 
 writen(int fd, void *ptr, size_t n) {  
    size_t   nleft;
    ssize_t  nwritten;
@@ -42,11 +44,60 @@ writen(int fd, void *ptr, size_t n) {
    nleft = n;
    while (nleft > 0) {
      if((nwritten = write(fd, ptr, nleft)) < 0) {
-        if (nleft == n) return -1; /* error, return -1 */
-        else break; /* error, return amount written so far */
+        if (nleft == n) return -1; // error, return -1 
+        else break; // error, return amount written so far 
      } else if (nwritten == 0) break; 
      nleft -= nwritten;
      ptr   += nwritten;
    }
-   return(n - nleft); /* return >= 0 */
+   return(n - nleft); // return >= 0 
 }
+
+/*
+ssize_t readn(int fd, void *buf, size_t size) {
+    ssize_t readn = 0, r = 0;
+
+    while ( readn < size ){
+
+        if ( (r = read(fd, buf, size)) == -1 ){
+            if( errno == EINTR )
+                // se la read è stata interrotta da un segnale riprende
+                continue;
+            else{
+                perror("Readn");
+                return -1;
+            }
+        }
+        if ( r == 0 )
+            return readn; // Nessun byte da leggere rimasto
+
+        readn += r;
+    }
+
+    return readn;
+}
+
+ssize_t writen(int fd, void *buf, size_t nbyte){
+    ssize_t writen = 0, w = 0;
+
+    while ( writen < nbyte ){
+        if ( (w = write(fd, buf, nbyte) ) == -1 ){
+            // se la write è stata interrotta da un segnale riprende //
+            if ( errno == EINTR )
+                continue;
+            else if ( errno == EPIPE )
+                break;
+            else{
+                perror("Writen");
+                return -1;
+            }
+        }
+        if( w == 0 )
+            return writen;
+
+        writen += w;
+    }
+
+    return writen;
+}
+*/

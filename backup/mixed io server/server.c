@@ -388,13 +388,13 @@ int main(int argc, char *argv[]) {
 								return 1;
 							}
 
-							printf("Nuovo client connesso. fd_c = %d\n", fd_c);
+							printf("Nuovo client connesso.\n");
 							// Scrivo sul logFile
-							char newConStr[25] = "Nuovo client: ";
-							char fdStr[128];
-							snprintf(fdStr, sizeof(int), "%d", fd_c);
-							strncat(newConStr, fdStr, strlen(fdStr)+1);
-							strncat(newConStr, "\n", 2);
+							char newConStr[25] = "Nuovo client connesso.\n";
+							//char fdStr[128];
+							//snprintf(fdStr, sizeof(int), "%d", fd_c);
+							//strncat(newConStr, fdStr, strlen(fdStr)+1);
+							//strncat(newConStr, "\n", 2);
 						    if (fwrite(newConStr, 1, strlen(newConStr)+1, logFile) == -1) {
 						    	perror("fwrite");
 						    	return -1;
@@ -420,7 +420,7 @@ int main(int argc, char *argv[]) {
 
 							// task aggiunto alla pool con successo
 							if (r == 0) {
-								printf("Task aggiunto alla pool da una nuove connessione: %d\n", fd_c);
+								printf("SERVER: task aggiunto alla pool.\n");
 								numberOfConnections++;
 								continue;
 							}
@@ -433,13 +433,6 @@ int main(int argc, char *argv[]) {
 							// coda pendenti piena
 							else {
 								perror("coda pendenti piena");
-							}
-
-							if (t->args) {
-							free(t->args);
-							}
-							if (t) {
-								free(t);
 							}
 
 							close(fd_c);
@@ -465,14 +458,6 @@ int main(int argc, char *argv[]) {
 
 						// se il worker thread ha chiuso la connessione...
 						if (fdr == -1) {
-							printf("Il worker thread ha chiuso la connessione con un client.\n");
-							/*
-							FD_CLR(fdr, &set);
-							if (fdr == fd_max) {
-								fd_max = update(set, fd_max);
-							}
-							*/
-
 							numberOfConnections--;
 							// ...controllo se devo terminare il server
 							if (stopIncomingConnections && numberOfConnections <= 0) {
@@ -484,19 +469,12 @@ int main(int argc, char *argv[]) {
 							break;
 						}
 
-						printf("Una richiesta singola del client %d e' stata servita.\n", fdr);
-						printf("Riaggiungo il client %d al set.\n", fdr);
 						// altrimenti riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
 						FD_SET(fdr, &set);
 
-						
 						if (fdr > fd_max) {
 							fd_max = fdr;
-							printf("Aggiorno fd_max = %d\n", fdr);
 						}
-						
-
-						//fd_max = update(set, fd_max);
 
 						continue;	
 					}
@@ -530,16 +508,12 @@ int main(int argc, char *argv[]) {
 					// altrimenti è una richiesta di I/O da un client già connesso
 					else {
 						FD_CLR(fd, &set);
-
-						if (fd > fd_max) {
-							fd_max = fd;
-						}
-						//fd_max = update(set, fd_max);
+						fd_max = update(set, fd_max);
 
 						// creo la struct da passare come argomento al thread worker
 						threadT *t = malloc(sizeof(threadT));
 						t->args = malloc(3*sizeof(long));
-						t->args[0] = fd;
+						t->args[0] = fd_c;
 			    		t->args[1] = (long) &quit;
 			    		t->args[2] = (long) requestPipe[1];
 			    		t->queue = queue;
@@ -556,7 +530,7 @@ int main(int argc, char *argv[]) {
 
 						// task aggiunto alla pool con successo
 						if (r == 0) {
-							printf("Task aggiunto alla pool da un client gia' connesso: %d\n", fd);
+							printf("Task aggiunto alla pool.\n");
 							continue;
 						}
 
@@ -568,13 +542,6 @@ int main(int argc, char *argv[]) {
 						// coda pendenti piena
 						else {
 							perror("coda pendenti piena");
-						}
-
-						if (t->args) {
-							free(t->args);
-						}
-						if (t) {
-							free(t);
 						}
 
 						close(fd);
@@ -617,8 +584,7 @@ static void serverThread(void *par) {
 	FILE *logFile = t->logFile;
 	sigset_t sigset;
 	fd_set set, tmpset;
-	//pid_t tid = syscall(__NR_gettid);;	// identificatore del thread worker
-	pthread_t tid = pthread_self();
+	pid_t tid = syscall(__NR_gettid);;	// identificatore del thread worker
 
 	// libera la memoria del threadT passato come parametro
 	free(par);
@@ -659,8 +625,7 @@ static void serverThread(void *par) {
 		}
 	}
 
-	//printf("SERVER THREAD: select ok.\n");
-	//fflush(stdout);
+	printf("SERVER THREAD: select ok.\n");
 
 	char buf[CMDSIZE];
 	memset(buf, '\0', CMDSIZE);
@@ -674,7 +639,6 @@ static void serverThread(void *par) {
 
 	if (n == 0 || strcmp(buf, "quit\n") == 0) {
 		printf("SERVER THREAD: chiudo la connessione col client\n");
-		fflush(stdout);
 		close(fd_c);
 
 		int close = -1;
@@ -682,50 +646,31 @@ static void serverThread(void *par) {
 		// comunico al manager che ho chiuso la connessione
 		if (writen(pipe, &close, sizeof(int)) == -1) {
 			perror("writen");
-			goto cleanup;
 		}	
-
-		// scrivo sul logFile
-		char closeConStr[64] = "Chiusa connessione con il client ";
-		char closeConnFdStr[32];
-		snprintf(closeConnFdStr, sizeof(fd_c), "%ld", fd_c);
-		strncat(closeConStr, closeConnFdStr, strlen(closeConnFdStr)+1);
-		strncat(closeConStr, ".\n", 3);
-		if (fwrite(closeConStr, 1, strlen(closeConStr)+1, logFile) == -1) {
-			perror("fwrite");
-			goto cleanup;
-		}
 
 		goto cleanup;
 	}
 
-	printf("SERVER THREAD: ho ricevuto %s! dal client %ld\n", buf, fd_c);
-	fflush(stdout);
+	printf("SERVER THREAD: ho ricevuto %s\n", buf);
 
 	if (parser(buf, queue, fd_c) == -1) {
 		printf("SERVER THREAD: errore parser.\n");
-		fflush(stdout);
 		goto cleanup;
 	}
 
 	memset(buf, '\0', CMDSIZE);
 
 	// comunico al manager che la richiesta è stata servita
-	int fdInt = (int) fd_c;
-	if (writen(pipe, &fdInt, sizeof(int)) == -1) {
+	if (writen(pipe, &fd_c, sizeof(int)) == -1) {
 		perror("writen");
 	}	
 
 	// scrivo sul logFile
 	char workStr[128] = "Il thread ";
 	char tidStr[64];
-	char fdWorkStr[64];
-	snprintf(tidStr, sizeof(pthread_t), "%ld", tid);
-	snprintf(fdWorkStr, sizeof(fd_c), "%ld", fd_c);
+	snprintf(tidStr, sizeof(pid_t), "%d", tid);
 	strncat(workStr, tidStr, strlen(tidStr)+1);
-	strncat(workStr, " ha servito una richiesta del client ", 64);
-	strncat(workStr, fdWorkStr, strlen(fdWorkStr)+1);
-	strncat(workStr, ".\n", 3);
+	strncat(workStr, " ha servito una richiesta.\n", 31);
 	if (fwrite(workStr, 1, strlen(workStr)+1, logFile) == -1) {
 		perror("fwrite");
 	}
@@ -733,7 +678,6 @@ static void serverThread(void *par) {
 	// ripulisci la memoria
 	cleanup: {
 		printf("cleanup SERVER THREAD\n");
-		fflush(stdout);
 		if (args) {
 			free(args);
 		}
@@ -761,7 +705,6 @@ static void* sigThread(void *par) {
 		}
 
 		printf("Ho ricevuto segnale %d\n", sig);
-		fflush(stdout);
 
 		switch (sig) {
 			case SIGHUP:
@@ -792,8 +735,6 @@ int update(fd_set set, int fdmax) {
 		}
 	}
 
-	// TO-DO rimuovere questo debug
-	assert(1 == 0);
 	return -1;
 }
 
@@ -882,7 +823,6 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	destroyFile(findF);
 
 	printf("openFile: found = %d\n", found);
-	fflush(stdout);
 
 	// se il client richiede di creare un file che esiste già, errore
 	if (O_CREATE && found) {
@@ -903,7 +843,6 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 		// se la cache e' piena, espelli un file secondo la politica FIFO
 		if (getLen(queue) == queue->maxLen) {
 			printf("openFile: coda piena (queue->len = %ld), espello un elemento.\n", getLen(queue));
-			fflush(stdout);
 			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
@@ -941,7 +880,6 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 	// invia risposta al client
 	send:
 		printf("openFile: mando risposta al client\n");
-		fflush(stdout);
 		void *buf = NULL;
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
@@ -1012,12 +950,10 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 	}
 
 	printf("writeFile: found = %d\n", found);	
-	fflush(stdout);
 
 	// il file e' presente nel server
 	if (found) {
 		printf("Il file e' locked? %d Owner = %d Client = %ld\n", findF->O_LOCK, findF->owner, fd_c);
-		fflush(stdout);
 
 		// controllo se il client ha i permessi per scrivere sul file
 		if (!findF->open || (findF->O_LOCK && findF->owner != fd_c)) {
@@ -1029,7 +965,6 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 		// se non c'e' abbastanza spazio nella cache, espelli un file secondo la politica FIFO
 		if (getSize(queue) + size > queue->maxSize) {
 			printf("writeFile: cache piena (queue->size = %ld), espello un elemento.\n", getSize(queue));
-			fflush(stdout);
 			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
@@ -1054,7 +989,6 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 	// invia risposta al client
 	send:
 		printf("writeFile: mando risposta al client\n");
-		fflush(stdout);
 		void *buf = NULL;
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
@@ -1080,7 +1014,6 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 				}
 
 				printf("writeFile: cache ancora piena (queue->size = %ld), espello un elemento.\n", getSize(queue));
-				fflush(stdout);
 
 				// libero la memoria del file appena mandato
 				if (espulso) {
@@ -1179,7 +1112,6 @@ void closeFile(char *filepath, queueT* queue, long fd_c) {
 	}
 
 	printf("openFile: found = %d\n", found);
-	fflush(stdout);
 
 	// se il file e' presente, chiudilo
 	if (found) {
@@ -1199,7 +1131,6 @@ void closeFile(char *filepath, queueT* queue, long fd_c) {
 	}
 
 	printf("closeFile: mando risposta al client\n");
-	fflush(stdout);
 	void *buf = NULL;
 	buf = malloc(BUFSIZE);
 	memcpy(buf, res, 3);
@@ -1220,34 +1151,6 @@ void closeFile(char *filepath, queueT* queue, long fd_c) {
 	free(res);
 }
 
-/*
-void closeFile(char* path, queueT* queue, long fd_c)
-{
-	char out[CMDSIZE];
-    memset(out,0,CMDSIZE);
-	// esecuzione della richiesta
-	int res = 0;
-	int log_res;
-	
-	printf("faccio finta di chiudere il file\n");
-
-	if (res == -1)
-	{
-	    log_res = 0;
-	    sprintf(out,"-1;%d;",errno);
-	}
-	else
-	{
-	    log_res = 1;
-	    sprintf(out,"0");
-	}
-	if (writen(fd_c,out,CMDSIZE) == -1)
-	{
-	    perror("writen");
-	}
-}
-*/
-
 // funzione ausiliaria che invia un file al client
 int sendFile(fileT *f, long fd_c) {
 	void *buf = NULL;
@@ -1255,11 +1158,9 @@ int sendFile(fileT *f, long fd_c) {
 
 	// invio prima il filepath...
 	printf("invio il filepath: %s\n", f->filepath);
-	fflush(stdout);
 	memset(buf, 0, BUFSIZE);
 	memcpy(buf, f->filepath, strlen(f->filepath)+1);
 	printf("memcpy fatta\n");
-	fflush(stdout);
 	if (writen(fd_c, buf, BUFSIZE) == -1) {
 		perror("writen");
 		free(buf);
@@ -1281,6 +1182,7 @@ int sendFile(fileT *f, long fd_c) {
 		free(buf);
 		return -1;
 	}
+
 
 	free(buf);
 	return 0;
