@@ -107,6 +107,35 @@ void testWriteFile() {
 	printf("FINE TEST WRITEFILE\n");
 }
 
+void stressTest(int startNum) {
+	struct timespec ts;
+	ts.tv_sec = 2;
+	ts.tv_nsec = 550;
+
+	errno = 0;
+	if (openConnection("mysock", 100, ts) != 0) {
+		perror("openConnection");
+		return;
+	}
+
+	char *str = malloc(10);
+	for (int i = startNum; i < startNum+5; i++) {
+		sprintf(str, "%d", i);
+		printf("Creo un file.\n");
+		if (openFile(str, 1) == -1) {
+			perror("openFile");
+		}
+		
+		sleep(1);
+
+		if (closeFile(str) == -1) {
+			perror("closeFile");
+		}
+	}
+
+	free(str);
+}
+
 int main(int argc, char* argv[]) {
 	struct sigaction siga;
 
@@ -194,36 +223,11 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	/*
-	struct timespec ts;
-	ts.tv_sec = 2;
-	ts.tv_nsec = 550;
-
-	errno = 0;
-	if (openConnection("mysock", 100, ts) != 0) {
-		return -1;
-	}
-
-	char *str = malloc(10);
-	for (int i = strtol(argv[1], NULL, 0); i < strtol(argv[1], NULL, 0)+10; i++) {
-		sprintf(str, "%d", i);
-		printf("Creo un file.\n");
-		if (openFile(str, 1) == -1) {
-			perror("openFile");
-		}
-		
-		sleep(1);
-
-		if (closeFile(str) == -1) {
-			perror("closeFile");
-		}
-	}
-
-	free(str);
-	*/
-
 	//testOpenFile();
 	//testWriteFile();
+
+	int num = strtol(argv[1], NULL, 0);
+	stressTest(num);
 
 	if (execute(cmdList, p) == -1) {
 		perror("execute");
@@ -469,16 +473,15 @@ int cmd_W(char *filelist, char *Directory, int print) {
 	// per ogni file nella lista...
 	while (token != NULL) {
 		ok = 1;
+		int opened = 0;
 		printf("\n%-20s", token); 
 
 		// apro il file
 		if (openFile(token, 1) == -1) {
-			perror("openFile esterna\n");
 			// se il file esiste gia', rifai la openFile senza O_CREATE
 			// TO-DO fare in modo di chiamare l'append in questo caso e non la writeFile
 			if (strcmp(strerror(errno), "File exists") == 0) {
 				if (openFile(token, 0) == -1) {
-					perror("openFile interna\n");
 					ok = 0;
 				}
 			}
@@ -488,7 +491,9 @@ int cmd_W(char *filelist, char *Directory, int print) {
 			}
 		}
 
-		printf("\nDEBUG openFile passata\n");
+		else {
+			opened = 1;
+		}
 
 		// scrivo il contenuto del file sul server
 		if (ok && writeFile(token, Directory) == -1) {
@@ -496,11 +501,8 @@ int cmd_W(char *filelist, char *Directory, int print) {
 			ok = 0;
 		}
 
-		printf("\nDEBUG writeFile passata\n");
-
 		// chiudo il file
-		// TO-DO chiudere il file anche quando c'è un errore in writefile ma non in openfile...
-		if (ok && closeFile(token) == -1) {
+		if (opened && closeFile(token) == -1) {
 			perror("closeFile\n");
 			ok = 0;
 		}

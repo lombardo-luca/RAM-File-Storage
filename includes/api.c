@@ -22,13 +22,7 @@
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
-
-/**
- * lastOp = 1 se e solo se l'ultima operazione e' stata una openFile terminata con successo.
- * Se lastOp = 1, openedFile contiene il filepath del file attualmente aperto. 
- */
-//static int lastOp = 0;
-static char openedFile[256] = "";	
+static char openedFile[256] = "";			// filepath del file attualmente aperto
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
 	// controllo la validità dei parametri
@@ -75,7 +69,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	// copio il nome del socket nella variabile globale
 	strncpy(socketName, sockname, SOCKNAME_MAX);
 
-	//lastOp = 0;
 	return 0;
 }
 
@@ -130,14 +123,14 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
-	printf("openFile: invio %s!\n", cmd);
+	//printf("openFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	printf("openFile: fatta la writen\n");
+	//printf("openFile: fatta la writen\n");
 
 	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
@@ -148,7 +141,7 @@ int openFile(const char* pathname, int flags) {
 		return -1;
 	}
 
-	printf("openFile: fatta la readn\n");
+	//printf("openFile: fatta la readn\n");
 
 	char res[3];
 	memcpy(res, buf, 3);
@@ -207,8 +200,8 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	printf("Sono dentro la writeFile\n");
-	fflush(stdout);
+	//printf("Sono dentro la writeFile\n");
+	//fflush(stdout);
 
 	void *buf = malloc(BUFSIZE);
 	void *content = malloc(BUFSIZE);
@@ -224,8 +217,8 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	printf("provo la read...\n");
-	fflush(stdout);
+	//printf("provo la read...\n");
+	//fflush(stdout);
 	while ((lung = read(fdi, content, BUFSIZE)) > 0) {
 		size += lung;
 	}
@@ -295,11 +288,11 @@ int writeFile(const char* pathname, const char* dirname) {
 	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
-	printf("writeFile: invio %s!\n", cmd);
-	fflush(stdout);
+	//printf("writeFile: invio %s!\n", cmd);
+	//fflush(stdout);
 
-	printf("writeFile: aspetto la writen...\n");
-	fflush(stdout);
+	//printf("writeFile: aspetto la writen...\n");
+	//fflush(stdout);
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		free(buf);
 		free(content);
@@ -307,8 +300,8 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	printf("writeFile: aspetto la readn...\n");
-	fflush(stdout);
+	//printf("writeFile: aspetto la readn...\n");
+	//fflush(stdout);
 	// ricevo la risposta dal server
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
@@ -321,8 +314,8 @@ int writeFile(const char* pathname, const char* dirname) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	printf("writeFile: ho ricevuto: %s!\n", res);
-	fflush(stdout);
+	//printf("writeFile: ho ricevuto: %s!\n", res);
+	//fflush(stdout);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -393,19 +386,19 @@ int closeFile(const char* pathname) {
 	strncat(cmd, pathname, strlen(pathname) + 1);
 
 	// invio il comando al server
-	printf("closeFile: invio %s!\n", cmd);
-	fflush(stdout);
+	//printf("closeFile: invio %s!\n", cmd);
+	//fflush(stdout);
 
 
-	printf("closeFile: provo la writen...\n");
-	fflush(stdout);
+	//printf("closeFile: provo la writen...\n");
+	//fflush(stdout);
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	printf("closeFile: provo la prima readn...\n");
-	fflush(stdout);
+	//printf("closeFile: provo la prima readn...\n");
+	//fflush(stdout);
 	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
@@ -447,55 +440,6 @@ int closeFile(const char* pathname) {
 	return 0;
 }
 
-/*
-int closeFile(const char* pathname) {
-	// controllo che il file da chiudere sia effettivamente aperto
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = ENOENT;
-		return -1;
-	}
-
-	char message[CMDSIZE];
-
-    char buffer[CMDSIZE];
-    memset(buffer,0,CMDSIZE);
-    sprintf(buffer, "closeFile:%s", pathname);
-    fflush(stdout);
-    printf("closeFile aspetto la writen\n");
-    fflush(stdout);
-    if(writen(fd_skt, buffer, CMDSIZE) == -1)
-    {
-        errno = EREMOTEIO;
-        return -1;
-    }
-    printf("closeFile aspetto la readn\n");
-    fflush(stdout);
-    if(readn(fd_skt, message, CMDSIZE) == -1)
-    {
-        errno = EREMOTEIO;
-        return -1;
-    }
-
-    char* token;
-    char* save = NULL;
-    token = strtok_r(message, ";", &save);
-
-    if (strcmp(token, "-1") == 0) // operazione terminata con fallimento
-    {
-        token = strtok_r(NULL,";", &save);
-        errno = (int)strtol(token, NULL, 10);
-        return -1;
-    }
-    else // operazione terminata con successo
-    {
-        printf("Operazione Completata : closeFile\n");
-        // aggiorno la variabile globale che tiene traccia del file aperto
-		strncpy(openedFile, "", 1);
-        return 0;
-    }
-}
-*/
-
 // funzione ausiliaria che riceve un file dal server
 int receiveFile(const char *dirname) {
 	void *buf = malloc(BUFSIZE);
@@ -512,8 +456,8 @@ int receiveFile(const char *dirname) {
 	}
 
 	strncpy(filepath, buf, BUFSIZE);
-	printf("Ho ricevuto filepath = %s\n", filepath);
-	fflush(stdout);
+	//printf("Ho ricevuto filepath = %s\n", filepath);
+	//fflush(stdout);
 
 	// ...poi la dimensione del file...
 	memset(buf, 0, BUFSIZE);
@@ -524,8 +468,8 @@ int receiveFile(const char *dirname) {
 	}
 
 	memcpy(&size, buf, sizeof(size_t));
-	printf("Ho ricevuto size = %ld\n", size);
-	fflush(stdout);
+	//printf("Ho ricevuto size = %ld\n", size);
+	//fflush(stdout);
 
 	content = malloc(size);
 
@@ -537,7 +481,7 @@ int receiveFile(const char *dirname) {
 		return -1;
 	}
 
-	printf("Ho ricevuto il contenuto!\n");
+	//printf("Ho ricevuto il contenuto!\n");
 
 	printf("TEST SCRITTURA SU FILE\n");
     FILE* opf = fopen("testscritturaCLIENT", "w");

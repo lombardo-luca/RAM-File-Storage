@@ -23,23 +23,29 @@
 #define BUFSIZE 10000	// 10KB
 #define LOGLINESIZE 512
 
+typedef struct struct_log {
+	FILE *file;
+	pthread_mutex_t m;
+} logT;
+
 // struttura dati che contiene gli argomenti da passare ai worker threads
 typedef struct struct_thread {
 	long *args;
 	queueT *queue;
-	FILE* logFile;
+	logT *logFileT;
 } threadT;
 
 static void serverThread(void *par);
 static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
-int parser(char *command, queueT *queue, long fd_c);
-void openFile(char *filepath, int flags, queueT *queue, long fd_c);
-void writeFile(char *filepath, size_t size, queueT* queue, long fd_c);
-void closeFile(char *filepath, queueT* queue, long fd_c);
+int writeLog(logT *logFileT, char *logString);
+int parser(char *command, queueT *queue, long fd_c, logT *logFileT);
+void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
+void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT);
+void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT);
 
 // funzioni ausiliarie
-int sendFile(fileT *f, long fd_c);
+int sendFile(fileT *f, long fd_c, logT *logFileT);
 
 // funzioni di test
 int testQueue(queueT *queue) {
@@ -269,6 +275,21 @@ int main(int argc, char *argv[]) {
 	free(option);
 	fclose(configFile);	// chiudo il file di configurazione
 
+	// creo la struct per il logFile e la inizializzo
+	logT *logFileT;
+
+	if ((logFileT = (logT*) calloc(1, sizeof(logT))) == NULL) {
+		perror("malloc logFileT");
+		return 1;
+	}
+
+	logFileT->file = logFile;
+
+    if (pthread_mutex_init(&logFileT->m, NULL) != 0) {
+        perror("pthread_mutex_init logFile");
+        return -1;
+    }
+
 	// scrivo sul logFile
 	char servStartStr[256] = "Server avviato.\nMax files = ";
 	char maxFilesStr[64];
@@ -280,8 +301,8 @@ int main(int argc, char *argv[]) {
 	strncat(servStartStr, ss, strlen(ss)+1);
 	strncat(servStartStr, maxSizeStr, strlen(maxSizeStr)+1);
 	strncat(servStartStr, ".\n", 3);
-	if (fwrite(servStartStr, 1, strlen(servStartStr)+1, logFile) == -1) {
-		perror("fwrite");
+	if (writeLog(logFileT, servStartStr) == -1) {
+		perror("writeLog");
 		return -1;
 	}
 
@@ -296,8 +317,8 @@ int main(int argc, char *argv[]) {
 	char sockStr[512] = "Creato socket = ";
 	strncat(sockStr, sockName, strlen(sockName)+1);
 	strncat(sockStr, ".\n", 3);
-	if (fwrite(sockStr, 1, strlen(sockStr)+1, logFile) == -1) {
-		perror("fwrite");
+	if (writeLog(logFileT, sockStr) == -1) {
+		perror("writeLog");
 		return -1;
 	}
 
@@ -343,8 +364,8 @@ int main(int argc, char *argv[]) {
 	snprintf(tPoolSizeStr, sizeof(int), "%d", threadpoolSize);
 	strncat(newTPoolStr, tPoolSizeStr, strlen(tPoolSizeStr)+1);
 	strncat(newTPoolStr, ".\n", 3);
-	if (fwrite(newTPoolStr, 1, strlen(newTPoolStr)+1, logFile) == -1) {
-		perror("fwrite");
+	if (writeLog(logFileT, newTPoolStr) == -1) {
+		perror("writeLog");
 		return -1;
 	}
 
@@ -395,10 +416,10 @@ int main(int argc, char *argv[]) {
 							snprintf(fdStr, sizeof(int), "%d", fd_c);
 							strncat(newConStr, fdStr, strlen(fdStr)+1);
 							strncat(newConStr, "\n", 2);
-						    if (fwrite(newConStr, 1, strlen(newConStr)+1, logFile) == -1) {
-						    	perror("fwrite");
-						    	return -1;
-						    }
+							if (writeLog(logFileT, newConStr) == -1) {
+								perror("writeLog");
+								return -1;
+							}
 
 							// creo la struct da passare come argomento al thread worker
 							threadT *t = malloc(sizeof(threadT));
@@ -407,16 +428,8 @@ int main(int argc, char *argv[]) {
 			    			t->args[1] = (long) &quit;
 			    			t->args[2] = (long) requestPipe[1];
 			    			t->queue = queue;
-			    			t->logFile = logFile;
+			    			t->logFileT = logFileT;
 							int r = addToThreadPool(pool, serverThread, (void*) t);
-
-							/*
-							long* args = malloc(3*sizeof(long));
-							args[0] = fd_c;
-			    			args[1] = (long) &quit;
-			    			args[2] = (long) requestPipe[1];
-							int r = addToThreadPool(pool, serverThread, (void*) args);
-							*/
 
 							// task aggiunto alla pool con successo
 							if (r == 0) {
@@ -438,6 +451,7 @@ int main(int argc, char *argv[]) {
 							if (t->args) {
 							free(t->args);
 							}
+
 							if (t) {
 								free(t);
 							}
@@ -543,16 +557,8 @@ int main(int argc, char *argv[]) {
 			    		t->args[1] = (long) &quit;
 			    		t->args[2] = (long) requestPipe[1];
 			    		t->queue = queue;
-			    		t->logFile = logFile;
+			    		t->logFileT = logFileT;
 						int r = addToThreadPool(pool, serverThread, (void*) t);
-
-						/*
-						long* args = malloc(3*sizeof(long));
-						args[0] = fd;
-		    			args[1] = (long) &quit;
-		    			args[2] = (long) requestPipe[1];
-						int r = addToThreadPool(pool, serverThread, (void*) args);
-						*/
 
 						// task aggiunto alla pool con successo
 						if (r == 0) {
@@ -573,6 +579,7 @@ int main(int argc, char *argv[]) {
 						if (t->args) {
 							free(t->args);
 						}
+
 						if (t) {
 							free(t);
 						}
@@ -600,25 +607,44 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	fclose(logFile);	// chiudo il file di log
+	//fclose(logFileT->file);	
+
+	// chiudo il file di log
+	if (logFileT->file) {
+		fclose(logFileT->file);
+		//free(logFileT->file);
+	}
+
+	if (&logFileT->m) {
+		 pthread_mutex_destroy(&logFileT->m);
+	}
+
+	if (logFileT) {
+		free(logFileT);
+	}
+
 	unlink(sockName);
 
 	return 0;
 }
 
 static void serverThread(void *par) {
-	assert(par);
+	// controllo la validita' dell'argomento
+	if (!par) {
+		errno = EINVAL;
+		return;
+	}
+
 	threadT *t = (threadT*) par;
 	long *args = t->args;
 	long fd_c = args[0];
 	long *quit = (long*) (args[1]);
 	int pipe = (int) (args[2]);
 	queueT *queue = t->queue;
-	FILE *logFile = t->logFile;
+	logT *logFileT = t->logFileT;
 	sigset_t sigset;
-	fd_set set, tmpset;
-	//pid_t tid = syscall(__NR_gettid);;	// identificatore del thread worker
-	pthread_t tid = pthread_self();
+	fd_set set, tmpset;	
+	pthread_t tid = pthread_self();		// identificatore del thread worker
 
 	// libera la memoria del threadT passato come parametro
 	free(par);
@@ -659,9 +685,6 @@ static void serverThread(void *par) {
 		}
 	}
 
-	//printf("SERVER THREAD: select ok.\n");
-	//fflush(stdout);
-
 	char buf[CMDSIZE];
 	memset(buf, '\0', CMDSIZE);
 
@@ -691,8 +714,8 @@ static void serverThread(void *par) {
 		snprintf(closeConnFdStr, sizeof(fd_c), "%ld", fd_c);
 		strncat(closeConStr, closeConnFdStr, strlen(closeConnFdStr)+1);
 		strncat(closeConStr, ".\n", 3);
-		if (fwrite(closeConStr, 1, strlen(closeConStr)+1, logFile) == -1) {
-			perror("fwrite");
+		if (writeLog(logFileT, closeConStr) == -1) {
+			perror("writeLog");
 			goto cleanup;
 		}
 
@@ -702,7 +725,7 @@ static void serverThread(void *par) {
 	printf("SERVER THREAD: ho ricevuto %s! dal client %ld\n", buf, fd_c);
 	fflush(stdout);
 
-	if (parser(buf, queue, fd_c) == -1) {
+	if (parser(buf, queue, fd_c, logFileT) == -1) {
 		printf("SERVER THREAD: errore parser.\n");
 		fflush(stdout);
 		goto cleanup;
@@ -726,8 +749,8 @@ static void serverThread(void *par) {
 	strncat(workStr, " ha servito una richiesta del client ", 64);
 	strncat(workStr, fdWorkStr, strlen(fdWorkStr)+1);
 	strncat(workStr, ".\n", 3);
-	if (fwrite(workStr, 1, strlen(workStr)+1, logFile) == -1) {
-		perror("fwrite");
+	if (writeLog(logFileT, workStr) == -1) {
+		perror("writeLog");
 	}
 
 	// ripulisci la memoria
@@ -797,9 +820,28 @@ int update(fd_set set, int fdmax) {
 	return -1;
 }
 
+// scrive un messaggio di log sul logFile
+int writeLog(logT *logFileT, char *logString) {
+	// controllo la validita' degli argomenti
+	if (!logFileT || !logString) {
+		errno = EINVAL;
+		return -1;
+	}
+	
+	pthread_mutex_lock(&logFileT->m);
+	if (fwrite(logString, 1, strlen(logString)+1, logFileT->file) == -1) {
+		perror("fwrite");
+		pthread_mutex_unlock(&logFileT->m);
+		return -1;
+	}
+	pthread_mutex_unlock(&logFileT->m);	
+
+	return 0;
+}
+
 // effettua il parsing dei comandi
-int parser(char *command, queueT *queue, long fd_c) {
-	if (!command || !queue) {
+int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
+	if (!command || !queue || !logFileT) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -814,7 +856,7 @@ int parser(char *command, queueT *queue, long fd_c) {
 		token3 = strtok_r(NULL, ":", &save);
 		int arg = (int) strtol(token3, NULL, 0);
 
-		openFile(token2, arg, queue, fd_c);
+		openFile(token2, arg, queue, fd_c, logFileT);
 	}
 
 	else if (token && strcmp(token, "writeFile") == 0) {
@@ -822,12 +864,12 @@ int parser(char *command, queueT *queue, long fd_c) {
 		token3 = strtok_r(NULL, ":", &save);
 		size_t sz = (size_t) strtol(token3, NULL, 0);
 
-		writeFile(token2, sz, queue, fd_c);
+		writeFile(token2, sz, queue, fd_c, logFileT);
 	}
 
 	else if (token && strcmp(token, "closeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
-		closeFile(token2, queue, fd_c);
+		closeFile(token2, queue, fd_c, logFileT);
 	}
 
 	// comando non riconosciuto
@@ -840,7 +882,7 @@ int parser(char *command, queueT *queue, long fd_c) {
 	return 0;
 }
 
-void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
+void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -952,18 +994,62 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 
 		// se un file è stato espulso dalla coda, lo invio al client
 		if (strcmp(res, "es") == 0) {
-			if (sendFile(espulso, fd_c) == -1) {
+			// scrivo sul logFile
+			char openFileStr[512] = "Il client ";
+			char openFileFdStr[32];
+			snprintf(openFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
+			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
+			strncat(openFileStr, filepath, strlen(filepath)+1);
+			strncat(openFileStr, ", che ha causato un capacity miss. Il file espulso e': ", 64);
+			strncat(openFileStr, espulso->filepath, strlen(espulso->filepath)+1);
+			strncat(openFileStr, ".\n", 3);
+			if (writeLog(logFileT, openFileStr) == -1) {
+				perror("writeLog");
+				goto cleanup;
+			}	
+
+			if (sendFile(espulso, fd_c, logFileT) == -1) {
 				perror("sendFile");
 				goto cleanup;
 			}
 		}
 
 		// se c'è stato un errore, invio errno al client
-		else if(strcmp(res, "er") == 0) {			
+		else if(strcmp(res, "er") == 0) {	
+			// scrivo sul logFile
+			char openFileStr[512] = "Il client ";
+			char openFileFdStr[32];
+			snprintf(openFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
+			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
+			strncat(openFileStr, filepath, strlen(filepath)+1);
+			strncat(openFileStr, ", terminata con errore.\n", 32);
+			if (writeLog(logFileT, openFileStr) == -1) {
+				perror("writeLog");
+				goto cleanup;
+			}	
+
+			// invio errno al client
 			if (writen(fd_c, &errno, sizeof(int)) == -1) {
 				perror("writen");
 				goto cleanup;
 			}
+		}
+
+		else {
+			// scrivo sul logFile
+			char openFileStr[512] = "Il client ";
+			char openFileFdStr[32];
+			snprintf(openFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
+			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
+			strncat(openFileStr, filepath, strlen(filepath)+1);
+			strncat(openFileStr, ", terminata con successo.\n", 32);
+			if (writeLog(logFileT, openFileStr) == -1) {
+				perror("writeLog");
+				goto cleanup;
+			}	
 		}
 
 		free(buf);
@@ -977,7 +1063,7 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c) {
 		free(res);
 }
 
-void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
+void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -1066,10 +1152,27 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 
 		// se un file e' stato espulso dalla coda, lo invio al client
 		if (strcmp(res, "es") == 0) {
-			if (sendFile(espulso, fd_c) == -1) {
+			if (sendFile(espulso, fd_c, logFileT) == -1) {
 				perror("sendFile");
 				goto cleanup;
 			}
+
+			// scrivo sul logFile
+			char writeFileStr[512] = "Il client ";
+			char writeFileFdStr[32];
+			char writeFileSizeStr[32];
+			snprintf(writeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
+			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			strncat(writeFileStr, filepath, strlen(filepath)+1);
+			strncat(writeFileStr, " di dimensione ", 48);
+			snprintf(writeFileSizeStr, sizeof(size), "%ld", size);
+			strncat(writeFileStr, writeFileSizeStr, strlen(writeFileSizeStr)+1);
+			strncat(writeFileStr, "B, che ha causato un capacity miss. I seguenti file sono stati espulsi:\n", 128);
+			if (writeLog(logFileT, writeFileStr) == -1) {
+				perror("writeLog");
+				goto cleanup;
+			}	
 
 			// se ancora non c'e' abbastanza spazio nella cache, espelli altri file
 			while (getSize(queue) + size > queue->maxSize) {
@@ -1094,7 +1197,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 					goto cleanup;
 				}
 
-				if (sendFile(espulso, fd_c) == -1) {
+				if (sendFile(espulso, fd_c, logFileT) == -1) {
 					perror("sendFile");
 					goto cleanup;
 				}
@@ -1129,7 +1232,21 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 		else if(strcmp(res, "er") == 0) {			
 			if (writen(fd_c, &errno, sizeof(int)) == -1) {
 				perror("writen");
+				goto cleanup;
 			}
+
+			// scrivo sul logFile
+			char writeFileStr[512] = "Il client ";
+			char writeFileFdStr[32];
+			snprintf(writeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
+			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			strncat(writeFileStr, filepath, strlen(filepath)+1);
+			strncat(writeFileStr, ", terminata con errore.\n", 32);
+			if (writeLog(logFileT, writeFileStr) == -1) {
+				perror("writeLog");
+				goto cleanup;
+			}	
 		}
 
 		// se non ci sono stati errori e non ho dovuto espellere alcun file, eseguo la richiesta del client
@@ -1137,12 +1254,31 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 			// ricevo dal client il contenuto del file da scrivere
 			if ((readn(fd_c, content, size)) == -1) {
 				perror("readn");
+				goto cleanup;
 			}
 
 			// scrivi il file
 			if (appendFileInQueue(queue, filepath, content, size, fd_c) == -1) {
 				perror("writeFileT");
+				goto cleanup;
 			}
+
+			// scrivo sul logFile
+			char writeFileStr[512] = "Il client ";
+			char writeFileFdStr[32];
+			char writeFileSizeStr[32];
+			snprintf(writeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
+			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			strncat(writeFileStr, filepath, strlen(filepath)+1);
+			strncat(writeFileStr, " di dimensione ", 48);
+			snprintf(writeFileSizeStr, sizeof(size), "%ld", size);
+			strncat(writeFileStr, writeFileSizeStr, strlen(writeFileSizeStr)+1);
+			strncat(writeFileStr, "B, terminata con successo.\n", 32);
+			if (writeLog(logFileT, writeFileStr) == -1) {
+				perror("writeLog");
+				goto cleanup;
+			}	
 		}	
 
 	// libera la memoria
@@ -1156,7 +1292,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c) {
 		free(res);
 }
 
-void closeFile(char *filepath, queueT* queue, long fd_c) {
+void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	int found = 0;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
@@ -1214,42 +1350,40 @@ void closeFile(char *filepath, queueT* queue, long fd_c) {
 		if (writen(fd_c, &errno, sizeof(int)) == -1) {
 			perror("writen");
 		}
+
+		// scrivo sul logFile
+		char closeFileStr[512] = "Il client ";
+		char closeFileFdStr[32];
+		snprintf(closeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+		strncat(closeFileStr, closeFileFdStr, strlen(closeFileFdStr)+1);
+		strncat(closeFileStr, " ha richiesto una closeFile sul file: ", 64);
+		strncat(closeFileStr, filepath, strlen(filepath)+1);
+		strncat(closeFileStr, ", terminata con errore.\n", 48);
+		if (writeLog(logFileT, closeFileStr) == -1) {
+			perror("writeLog");
+		}	
+	}
+
+	else {
+		// scrivo sul logFile
+		char closeFileStr[512] = "Il client ";
+		char closeFileFdStr[32];
+		snprintf(closeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+		strncat(closeFileStr, closeFileFdStr, strlen(closeFileFdStr)+1);
+		strncat(closeFileStr, " ha richiesto una closeFile sul file: ", 64);
+		strncat(closeFileStr, filepath, strlen(filepath)+1);
+		strncat(closeFileStr, ", terminata con successo.\n", 48);
+		if (writeLog(logFileT, closeFileStr) == -1) {
+			perror("writeLog");
+		}	
 	}
 
 	free(buf);
 	free(res);
 }
 
-/*
-void closeFile(char* path, queueT* queue, long fd_c)
-{
-	char out[CMDSIZE];
-    memset(out,0,CMDSIZE);
-	// esecuzione della richiesta
-	int res = 0;
-	int log_res;
-	
-	printf("faccio finta di chiudere il file\n");
-
-	if (res == -1)
-	{
-	    log_res = 0;
-	    sprintf(out,"-1;%d;",errno);
-	}
-	else
-	{
-	    log_res = 1;
-	    sprintf(out,"0");
-	}
-	if (writen(fd_c,out,CMDSIZE) == -1)
-	{
-	    perror("writen");
-	}
-}
-*/
-
 // funzione ausiliaria che invia un file al client
-int sendFile(fileT *f, long fd_c) {
+int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	void *buf = NULL;
 	buf = malloc(BUFSIZE);
 
@@ -1281,6 +1415,23 @@ int sendFile(fileT *f, long fd_c) {
 		free(buf);
 		return -1;
 	}
+
+	// scrivo sul logFile
+	char sendFileStr[512] = "Il file ";
+	char sendFileFdStr[32];
+	char sendFileSizeStr[32];
+	snprintf(sendFileFdStr, sizeof(fd_c), "%ld", fd_c);
+	snprintf(sendFileSizeStr, sizeof(f->size), "%ld", f->size);
+	strncat(sendFileStr, f->filepath, strlen(f->filepath)+1);
+	strncat(sendFileStr, ", di dimensione ", 20);
+	strncat(sendFileStr, sendFileSizeStr, strlen(sendFileSizeStr)+1);
+	strncat(sendFileStr, "B, e' stato inviato al client ", 35);
+	strncat(sendFileStr, sendFileFdStr, strlen(sendFileFdStr)+1);
+	strncat(sendFileStr, ".\n", 3);
+	
+	if (writeLog(logFileT, sendFileStr) == -1) {
+		perror("writeLog");
+	}	
 
 	free(buf);
 	return 0;
