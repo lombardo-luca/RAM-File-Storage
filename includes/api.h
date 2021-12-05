@@ -54,3 +54,4 @@ int closeFile(const char *pathname);
 int receiveFile(const char *dirname);
 int receiveNFiles(const char *dirname);
 void printInfo(int p);
+int setDirectory(char* Dir);

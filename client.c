@@ -226,8 +226,10 @@ int main(int argc, char* argv[]) {
 	//testOpenFile();
 	//testWriteFile();
 
+	/*
 	int num = strtol(argv[1], NULL, 0);
 	stressTest(num);
+	*/
 
 	if (execute(cmdList, p) == -1) {
 		perror("execute");
@@ -380,6 +382,11 @@ int execute(cmdT *cmdList, int print) {
 				if (temp->next) {
 					if ((temp->next)->cmd == 'D') {
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
+
+						if (setDirectory(Dir) == -1) {
+							perror("setDirectory");
+						}
+
 						printf("\nD - Cartella per le scritture: %s\tEsito: ok\n", Dir);
 					}
 				}
@@ -507,7 +514,7 @@ int cmd_W(char *filelist, char *Directory, int print) {
 			ok = 0;
 		}
 
-		printf("\nEsito: "); 
+		printf("Esito: "); 
 
 		if (ok) {
 			printf("ok");

@@ -274,16 +274,22 @@ int printQueue(queueT *queue) {
         return -1;
     }
 
-    printf("Lunghezza attuale della coda: %ld\n", queue->len);
-    printf("Dimensione attuale della coda: %ld\n", queue->size);
+    pthread_mutex_lock(&queue->m);
+
+    printf("Lista dei file contenuti nello storage al momento della chiusura del server:\n");
+    //printf("Lunghezza attuale della coda: %ld\n", queue->len);
+    //printf("Dimensione attuale della coda: %ld\n", queue->size);
 
     nodeT *temp = queue->head;
 
     // scorro tutta la lista e stampo ogni elemento
     while (temp) {
-        printf("File: %s Dimensione %ld\n", (temp->data)->filepath, (temp->data)->size);
+        double res = (temp->data)->size/(double) 1000000;
+        printf("File: %s Dimensione %lf MB\n", (temp->data)->filepath, res);
         temp = temp->next;
     }
+
+    pthread_mutex_unlock(&queue->m);
 
     return 0;
 }

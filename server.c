@@ -23,8 +23,12 @@
 #define BUFSIZE 10000	// 10KB
 #define LOGLINESIZE 512
 
+// struttura dati che contiene un puntatore al file di logs e delle statistiche sulle operazioni effettuate
 typedef struct struct_log {
 	FILE *file;
+	size_t maxFiles;
+	double maxSize;
+	size_t cacheMiss;
 	pthread_mutex_t m;
 } logT;
 
@@ -39,6 +43,8 @@ static void serverThread(void *par);
 static void* sigThread(void *par);
 int update(fd_set set, int fdmax);
 int writeLog(logT *logFileT, char *logString);
+int updateStats(logT *logFileT, queueT *queue, int miss);
+void printStats(logT *logFileT);
 int parser(char *command, queueT *queue, long fd_c, logT *logFileT);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
 void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT);
@@ -222,7 +228,7 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-			printf("CONFIG: Numero massimo di file supportati = %ld\n", maxFiles);
+			printf("CONFIG: Numero massimo di file supportati = %zu\n", maxFiles);
 		}
 
 		// configuro la dimensione massima supportata (in KB)
@@ -236,7 +242,7 @@ int main(int argc, char *argv[]) {
 				return 1;
 			}
 
-			printf("CONFIG: Dimensione massima supportata = %lu KB (%lu Bytes)\n", maxSize/1000, maxSize);
+			printf("CONFIG: Dimensione massima supportata = %zu KB (%zu Bytes)\n", maxSize/1000, maxSize);
 		}
 
 		// configuro il nome del file nel quale verranno scritti i logs
@@ -275,7 +281,7 @@ int main(int argc, char *argv[]) {
 	free(option);
 	fclose(configFile);	// chiudo il file di configurazione
 
-	// creo la struct per il logFile e la inizializzo
+	// creo la struct per i logs e le statistiche e la inizializzo
 	logT *logFileT;
 
 	if ((logFileT = (logT*) calloc(1, sizeof(logT))) == NULL) {
@@ -284,19 +290,22 @@ int main(int argc, char *argv[]) {
 	}
 
 	logFileT->file = logFile;
+	logFileT->maxFiles = 0;
+	logFileT->maxSize = 0;
+	logFileT->cacheMiss = 0;
 
     if (pthread_mutex_init(&logFileT->m, NULL) != 0) {
         perror("pthread_mutex_init logFile");
         return -1;
     }
 
-	// scrivo sul logFile
+	// scrivo sul logFile(temp->data)->size)
 	char servStartStr[256] = "Server avviato.\nMax files = ";
 	char maxFilesStr[64];
 	char maxSizeStr[64];
-	char ss[13] = " Max size = ";
-	snprintf(maxFilesStr, sizeof(size_t), "%ld", maxFiles);
-	snprintf(maxSizeStr, sizeof(size_t), "%ld", maxSize);
+	char ss[64] = " Max size = ";
+	snprintf(maxFilesStr, sizeof(size_t)+1, "%zu", maxFiles);
+	snprintf(maxSizeStr, sizeof(size_t)+1, "%zu", maxSize);
 	strncat(servStartStr, maxFilesStr, strlen(maxFilesStr)+1);
 	strncat(servStartStr, ss, strlen(ss)+1);
 	strncat(servStartStr, maxSizeStr, strlen(maxSizeStr)+1);
@@ -361,7 +370,7 @@ int main(int argc, char *argv[]) {
 	// scrivo sul logFile
 	char newTPoolStr[128] = "Creata threadpool di dimensione ";
 	char tPoolSizeStr[64];
-	snprintf(tPoolSizeStr, sizeof(int), "%d", threadpoolSize);
+	snprintf(tPoolSizeStr, sizeof(int)+1, "%d", threadpoolSize);
 	strncat(newTPoolStr, tPoolSizeStr, strlen(tPoolSizeStr)+1);
 	strncat(newTPoolStr, ".\n", 3);
 	if (writeLog(logFileT, newTPoolStr) == -1) {
@@ -413,7 +422,7 @@ int main(int argc, char *argv[]) {
 							// Scrivo sul logFile
 							char newConStr[25] = "Nuovo client: ";
 							char fdStr[128];
-							snprintf(fdStr, sizeof(int), "%d", fd_c);
+							snprintf(fdStr, sizeof(int)+1, "%d", fd_c);
 							strncat(newConStr, fdStr, strlen(fdStr)+1);
 							strncat(newConStr, "\n", 2);
 							if (writeLog(logFileT, newConStr) == -1) {
@@ -595,7 +604,10 @@ int main(int argc, char *argv[]) {
 
 	destroyThreadPool(pool, 0);		// notifico a tutti i thread workers di terminare
 
-	printf("Sto per distruggere la cache\n");
+	// stampo il sunto delle operazioni effettuate durante l'esecuzione del server
+	printStats(logFileT);
+	//printf("Sto per distruggere la cache\n");
+	// stampo i file contenuti nello storage al momento della chiusura del server
 	if (printQueue(queue) == -1) {
 		perror("printQueue");
 		return 1;
@@ -711,7 +723,7 @@ static void serverThread(void *par) {
 		// scrivo sul logFile
 		char closeConStr[64] = "Chiusa connessione con il client ";
 		char closeConnFdStr[32];
-		snprintf(closeConnFdStr, sizeof(fd_c), "%ld", fd_c);
+		snprintf(closeConnFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 		strncat(closeConStr, closeConnFdStr, strlen(closeConnFdStr)+1);
 		strncat(closeConStr, ".\n", 3);
 		if (writeLog(logFileT, closeConStr) == -1) {
@@ -743,8 +755,8 @@ static void serverThread(void *par) {
 	char workStr[128] = "Il thread ";
 	char tidStr[64];
 	char fdWorkStr[64];
-	snprintf(tidStr, sizeof(pthread_t), "%ld", tid);
-	snprintf(fdWorkStr, sizeof(fd_c), "%ld", fd_c);
+	snprintf(tidStr, sizeof(pthread_t)+1, "%ld", tid);
+	snprintf(fdWorkStr, sizeof(fd_c)+1, "%ld", fd_c);
 	strncat(workStr, tidStr, strlen(tidStr)+1);
 	strncat(workStr, " ha servito una richiesta del client ", 64);
 	strncat(workStr, fdWorkStr, strlen(fdWorkStr)+1);
@@ -837,6 +849,55 @@ int writeLog(logT *logFileT, char *logString) {
 	pthread_mutex_unlock(&logFileT->m);	
 
 	return 0;
+}
+
+// aggiorna le statistiche nel logFile
+int updateStats(logT *logFileT, queueT *queue, int miss) {
+	// controllo la validita' degli argomenti
+	if (!logFileT || !queue) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	pthread_mutex_lock(&logFileT->m);
+
+	size_t len = getLen(queue);
+	size_t size = getSize(queue);
+
+	if (len > logFileT->maxFiles) {
+		logFileT->maxFiles = len;
+	}
+
+	if (size > logFileT->maxSize) {
+		logFileT->maxSize = size;
+	}
+
+	if (miss != 0) {
+		logFileT->cacheMiss += miss;
+	}
+
+	pthread_mutex_unlock(&logFileT->m);	
+
+	return 0;
+}
+
+// stampa le statistiche nel logFile su standard output
+void printStats(logT *logFileT) {
+	// controllo la validita' dell'argomento
+	if (!logFileT) {
+		errno = EINVAL;
+		return;
+	}
+
+	pthread_mutex_lock(&logFileT->m);
+
+	double res = logFileT->maxSize/(double) 1000000;
+
+	printf("Numero massimo di file memorizzati nel server: %zu\n", logFileT->maxFiles);
+	printf("Dimensione massima raggiunta dal file storage: %lf MB\n", res);
+	printf("Numero di capacity misses nella cache: %ld\n", logFileT->cacheMiss);
+
+	pthread_mutex_unlock(&logFileT->m);	
 }
 
 // effettua il parsing dei comandi
@@ -954,7 +1015,9 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 				goto send;
 			}
 
-			
+			// aggiorno il file delle statistiche
+			updateStats(logFileT, queue, 1);
+
 			memcpy(res, es, 3);
 		}
 
@@ -969,6 +1032,11 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 		else if (enqueue(queue, f) != 0) {
 			perror("enqueue");
 			memcpy(res, er, 3);
+		}
+
+		else {
+			// aggiorno il file delle statistiche
+			updateStats(logFileT, queue, 0);
 		}
 	}
 
@@ -997,7 +1065,7 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 			// scrivo sul logFile
 			char openFileStr[512] = "Il client ";
 			char openFileFdStr[32];
-			snprintf(openFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			snprintf(openFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
 			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
 			strncat(openFileStr, filepath, strlen(filepath)+1);
@@ -1020,7 +1088,7 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 			// scrivo sul logFile
 			char openFileStr[512] = "Il client ";
 			char openFileFdStr[32];
-			snprintf(openFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			snprintf(openFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
 			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
 			strncat(openFileStr, filepath, strlen(filepath)+1);
@@ -1041,7 +1109,7 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 			// scrivo sul logFile
 			char openFileStr[512] = "Il client ";
 			char openFileFdStr[32];
-			snprintf(openFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			snprintf(openFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
 			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
 			strncat(openFileStr, filepath, strlen(filepath)+1);
@@ -1114,7 +1182,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 
 		// se non c'e' abbastanza spazio nella cache, espelli un file secondo la politica FIFO
 		if (getSize(queue) + size > queue->maxSize) {
-			printf("writeFile: cache piena (queue->size = %ld), espello un elemento.\n", getSize(queue));
+			printf("writeFile: cache piena (queue->size = %zu), espello un elemento.\n", getSize(queue));
 			fflush(stdout);
 			espulso = dequeue(queue);
 
@@ -1123,6 +1191,9 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 				memcpy(res, er, 3);
 				goto send;
 			}
+
+			// aggiorno il file delle statistiche
+			updateStats(logFileT, queue, 1);
 
 			memcpy(res, es, 3);
 		}
@@ -1161,12 +1232,12 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 			char writeFileStr[512] = "Il client ";
 			char writeFileFdStr[32];
 			char writeFileSizeStr[32];
-			snprintf(writeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			snprintf(writeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
 			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
 			strncat(writeFileStr, filepath, strlen(filepath)+1);
 			strncat(writeFileStr, " di dimensione ", 48);
-			snprintf(writeFileSizeStr, sizeof(size), "%ld", size);
+			snprintf(writeFileSizeStr, sizeof(size)+1, "%ld", size);
 			strncat(writeFileStr, writeFileSizeStr, strlen(writeFileSizeStr)+1);
 			strncat(writeFileStr, "B, che ha causato un capacity miss. I seguenti file sono stati espulsi:\n", 128);
 			if (writeLog(logFileT, writeFileStr) == -1) {
@@ -1197,6 +1268,9 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 					goto cleanup;
 				}
 
+				// aggiorno il file delle statistiche
+				updateStats(logFileT, queue, 1);
+
 				if (sendFile(espulso, fd_c, logFileT) == -1) {
 					perror("sendFile");
 					goto cleanup;
@@ -1226,6 +1300,11 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 				perror("writeFileT");
 				memcpy(res, er, 3);
 			}
+
+			else {
+				// aggiorno il file delle statistiche
+				updateStats(logFileT, queue, 0);
+			}
 		}
 
 		// se c'è stato un errore, invio errno al client
@@ -1238,7 +1317,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 			// scrivo sul logFile
 			char writeFileStr[512] = "Il client ";
 			char writeFileFdStr[32];
-			snprintf(writeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			snprintf(writeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
 			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
 			strncat(writeFileStr, filepath, strlen(filepath)+1);
@@ -1267,12 +1346,12 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 			char writeFileStr[512] = "Il client ";
 			char writeFileFdStr[32];
 			char writeFileSizeStr[32];
-			snprintf(writeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+			snprintf(writeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
 			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
 			strncat(writeFileStr, filepath, strlen(filepath)+1);
 			strncat(writeFileStr, " di dimensione ", 48);
-			snprintf(writeFileSizeStr, sizeof(size), "%ld", size);
+			snprintf(writeFileSizeStr, sizeof(size)+1, "%ld", size);
 			strncat(writeFileStr, writeFileSizeStr, strlen(writeFileSizeStr)+1);
 			strncat(writeFileStr, "B, terminata con successo.\n", 32);
 			if (writeLog(logFileT, writeFileStr) == -1) {
@@ -1354,7 +1433,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT) {
 		// scrivo sul logFile
 		char closeFileStr[512] = "Il client ";
 		char closeFileFdStr[32];
-		snprintf(closeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+		snprintf(closeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 		strncat(closeFileStr, closeFileFdStr, strlen(closeFileFdStr)+1);
 		strncat(closeFileStr, " ha richiesto una closeFile sul file: ", 64);
 		strncat(closeFileStr, filepath, strlen(filepath)+1);
@@ -1368,7 +1447,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT) {
 		// scrivo sul logFile
 		char closeFileStr[512] = "Il client ";
 		char closeFileFdStr[32];
-		snprintf(closeFileFdStr, sizeof(fd_c), "%ld", fd_c);
+		snprintf(closeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 		strncat(closeFileStr, closeFileFdStr, strlen(closeFileFdStr)+1);
 		strncat(closeFileStr, " ha richiesto una closeFile sul file: ", 64);
 		strncat(closeFileStr, filepath, strlen(filepath)+1);
@@ -1420,8 +1499,8 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	char sendFileStr[512] = "Il file ";
 	char sendFileFdStr[32];
 	char sendFileSizeStr[32];
-	snprintf(sendFileFdStr, sizeof(fd_c), "%ld", fd_c);
-	snprintf(sendFileSizeStr, sizeof(f->size), "%ld", f->size);
+	snprintf(sendFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+	snprintf(sendFileSizeStr, sizeof(f->size)+1, "%ld", f->size);
 	strncat(sendFileStr, f->filepath, strlen(f->filepath)+1);
 	strncat(sendFileStr, ", di dimensione ", 20);
 	strncat(sendFileStr, sendFileSizeStr, strlen(sendFileSizeStr)+1);

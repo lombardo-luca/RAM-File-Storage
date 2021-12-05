@@ -23,6 +23,7 @@ static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
 static char openedFile[256] = "";			// filepath del file attualmente aperto
+static char Directory[256] = ""; 	// cartella sulla quale scrivere i file espulsi dal server in seguito a una openFile
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
 	// controllo la validità dei parametri
@@ -167,7 +168,7 @@ int openFile(const char* pathname, int flags) {
 
 	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
 	else if (strcmp(res, "es") == 0) {
-		if (receiveFile(NULL) == -1) {
+		if (receiveFile(Directory) == -1) {
 			free(buf);
 			return -1;
 		}
@@ -229,12 +230,12 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	printf("Dimensione: %ldB\t", size);
+	printf("Dimensione: %ld B\t", size);
 	fflush(stdout);
 
 	if (size >= BUFSIZE) {
 		if (print) {
-			printf("\nLa dimensione del file supera il limite (%dB). Solo i primi %dB saranno inviati.\n", BUFSIZE, BUFSIZE);
+			printf("\nLa dimensione del file supera il limite (%d B). Solo i primi %d B saranno inviati.\n", BUFSIZE, BUFSIZE);
 		}
 	}
 
@@ -446,7 +447,18 @@ int receiveFile(const char *dirname) {
 	memset(buf, 0, BUFSIZE);
 	char filepath[BUFSIZE];
 	size_t size;
+	char dir[256] = "";
 	void *content = NULL;
+	char *filename = malloc(256);
+
+	// se e' stata passata una directory, usala per scriverci dentro i file ricevuti dal serevr
+	if (dirname && strcmp(dirname, "") != 0) {
+		strncpy(dir, dirname, strlen(dirname)+1);
+
+		if (dir[strlen(dir)] != '/') {
+			dir[strlen(dir)] = '/';
+		}
+	}
 
 	// ricevo prima il filepath...
 	if ((readn(fd_skt, buf, BUFSIZE)) == -1) {
@@ -483,13 +495,66 @@ int receiveFile(const char *dirname) {
 
 	//printf("Ho ricevuto il contenuto!\n");
 
+	if (strcmp(dir, "") != 0) {
+		//printf("SCRITTURA SU FILE\n");
+		memset(filename, '\0', 256);
+		strncpy(filename, filepath, strlen(filepath)+1);
+		char fullpath[512] = "";
+		strncpy(fullpath, dir, 256);
+
+		/**
+		 * Se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
+		 * Questo puo' accadere poiche' il server memorizza i file utilizzando il loro path assoluto come identificatore.
+		*/
+		int i = 0;
+		while (filename[i]) {
+			if (filename[i] == '/') {
+				filename[i] = '-';
+			}
+
+			i++;
+		}
+
+		//printf("Dir: %s Filename: %s Fullpath: %s\n", dir, filename, fullpath);
+		strncat(fullpath, filename, 256);
+		//printf("Voglio scrivere %ld bytes in %s\n", size, fullpath);
+
+		// Apro file di output
+		int fdo;
+		if ((fdo = open(fullpath, O_CREAT | O_WRONLY, 0666)) == -1) {
+			perror("open\n");
+			free(content);
+	    	free(filename);
+	    	free(buf);
+	    	return -1;
+		}
+
+		if (write(fdo, content, size) == -1) {
+			perror("write\n");
+			free(content);
+	    	free(filename);
+	    	free(buf);
+	    	return -1;
+		}
+
+		if (close(fdo) == -1) {
+			free(content);
+	    	free(filename);
+	    	free(buf);
+	    	return -1;
+		}
+	}
+
+	/*
 	printf("TEST SCRITTURA SU FILE\n");
     FILE* opf = fopen("testscritturaCLIENT", "w");
     printf("Voglio scrivere %ld bytes\n", size);
     fwrite(content, 1, size, opf);
     fclose(opf);
     printf("FINE TEST SCRITTURA SU FILE\n");
+	*/
 
+	free(filename);
 	free(content);
 	free(buf);
 
@@ -535,7 +600,7 @@ int receiveNFiles(const char *dirname) {
 		}
 
 		if (print && strcmp(dir, "") != 0) {
-			printf("%s", filepath);
+			printf("%-20s", filepath);
 		}
 
 		// poi ricevo la dimensione del file...
@@ -549,7 +614,8 @@ int receiveNFiles(const char *dirname) {
 		memcpy(&size, buf, sizeof(size_t));
 
 		if (print && strcmp(dir, "") != 0) {
-			printf("\tDimensione: %ldB\t", size);
+			printf("\tDimensione: %ld B\n", size);
+			fflush(stdout);
 		}
 		//printf("Ho ricevuto size = %ld\n", size);
 
@@ -575,7 +641,7 @@ int receiveNFiles(const char *dirname) {
 
 			/**
 			 * Se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
-			 * Questo può accadere poiché il server memorizza i file utilizzando il loro path assoluto come identificatore.
+			 * Questo puo' accadere poiché il server memorizza i file utilizzando il loro path assoluto come identificatore.
 			*/
 			int i = 0;
 			while (filename[i]) {
@@ -593,7 +659,7 @@ int receiveNFiles(const char *dirname) {
 			// Apro file di output
 			int fdo;
 			if ((fdo = open(fullpath, O_CREAT | O_WRONLY, 0666)) == -1) {
-				perror("errore secondo argomento in apertura\n");
+				perror("open\n");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -601,7 +667,7 @@ int receiveNFiles(const char *dirname) {
 			}
 
 			if (write(fdo, content, size) == -1) {
-				perror("errore secondo argomento in scrittura\n");
+				perror("write\n");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -614,27 +680,6 @@ int receiveNFiles(const char *dirname) {
 		    	free(buf);
 		    	return -1;
 			}
-
-			/*
-		    FILE* opf;
-		    if ((opf = fopen(fullpath, "w")) == NULL) {
-		    	//perror("fopen");
-		    	free(content);
-		    	free(filename);
-		    	free(buf);
-		    	return -1;
-		    }
-		    
-		    if (fwrite(content, 1, size, opf) == -1) {
-		    	//perror("fwrite");
-		    	free(content);
-		    	free(filename);
-		    	free(buf);
-		    	return -1;
-		    }
-
-		    fclose(opf);
-		    */
 		}
 		
 	    free(content);
@@ -642,6 +687,23 @@ int receiveNFiles(const char *dirname) {
 
 	free(filename);
 	free(buf);
+
+	return 0;
+}
+
+/**
+ * imposta la cartella sulla quale scrivere i file espulsi dal server 
+ * in seguito alla creazione di un file che ha generato una capacity miss
+ */ 
+int setDirectory(char* Dir) {
+	// controllo la validita' dell'argomento
+	if (!Dir || strlen(Dir) >= 256) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	memset(Directory, '\0', 256);
+	strncpy(Directory, Dir, strlen(Dir)+1);
 
 	return 0;
 }
