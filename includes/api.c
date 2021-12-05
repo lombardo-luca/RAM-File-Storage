@@ -245,40 +245,6 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	/*
-	// leggo il file da scrivere sul server
-	FILE* ipf = NULL;
-	if ((ipf = fopen(pathname, "rb")) == NULL) {
-		perror("fopen");
-		free(buf);
-		free(content);
-		return -1;
-	}
-
-	char cnt[BUFSIZE];
-    cnt[0] = '\0';
-    char line[BUFSIZE];
-
-    printf("faccio la fgets...\n");
-    while (fgets(line, BUFSIZE, ipf)) {
-      	// leggiamo riga per riga il contenuto del file (ogni riga è registrata in line) e ne facciamo la append in cnt
-        strcat(cnt, line);
-    }
-
-    size = strlen(cnt)+1;
-	//printf("provo la fread...\n");
-	//size = fread(content, 1, BUFSIZE, ipf);
-	//printf("Dimensione: %ldB\t", size);
-
-	if (size == BUFSIZE) {
-		if (print) {
-			printf("\nLa dimensione del file supera il limite (%dB). Solo i primi %dB saranno inviati.\n", BUFSIZE, BUFSIZE);
-		}
-	}
-
-	fclose(ipf);
-	*/
-
 	// preparo il comando da inviare al server in formato writeFile:pathname:size
 	memset(cmd, '\0', CMDSIZE);
 	strncpy(cmd, "writeFile:", 11);
@@ -363,6 +329,126 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	free(buf);
 	free(content);
+	return 0;
+}
+
+int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
+	// controllo la validità degli argomenti
+	if (!pathname || !buf || strlen(pathname) >= BUFSIZE) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo che il client sia effettivamente connesso al server
+	if (strcmp(socketName, "") == 0) {
+		errno = ENOTCONN;
+		return -1;
+	}
+
+	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
+	if (strcmp(openedFile, pathname) != 0) {
+		errno = EPERM;
+		return -1;
+	}
+
+	size_t size2 = 0;
+
+	// controllo che la dimensione del buffer non sia piu' grande di BUFSIZE
+	if (size >= BUFSIZE) {
+		if (print) {
+			printf("\nLa dimensione del file supera il limite (%d B). Solo i primi %d B saranno inviati.\n", BUFSIZE, BUFSIZE);
+		}
+
+		size2 = BUFSIZE;
+	}
+
+	else {
+		size2 = size;
+	}
+
+	//printf("Sono dentro la appendToFile\n");
+	//fflush(stdout);
+
+	void *readBuf = malloc(BUFSIZE);
+	char cmd[CMDSIZE] = "";
+	
+	// preparo il comando da inviare al server in formato appendToFile:pathname:size
+	memset(cmd, '\0', CMDSIZE);
+	strncpy(cmd, "appendToFile:", 15);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+	strncat(cmd, ":", 2);
+	char sizeStr[BUFSIZE];
+	snprintf(sizeStr, BUFSIZE, "%ld", size2);
+	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
+
+	// invio il comando al server
+	//printf("appendToFile: invio %s!\n", cmd);
+	//fflush(stdout);
+
+	//printf("appendToFile: aspetto la writen...\n");
+	//fflush(stdout);
+	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+		free(readBuf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	//printf("appendToFile: aspetto la readn...\n");
+	//fflush(stdout);
+	// ricevo la risposta dal server
+	int r = readn(fd_skt, readBuf, 3);
+	if (r == -1 || r == 0) {
+		free(readBuf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, readBuf, 3);
+
+	//printf("appendToFile: ho ricevuto: %s!\n", res);
+	//fflush(stdout);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(readBuf, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, readBuf, sizeof(int))) == -1) {
+			free(readBuf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, readBuf, sizeof(int));
+		free(readBuf);
+		return -1;
+	}
+
+	// se il server ha dovuto espellere dei file per fare spazio, li ricevo tutti
+	else if (strcmp(res, "es") == 0) {
+		if (print && dirname) {
+			if (strcmp(dirname, "") != 0) {
+				printf("\nIl server ha espulso i seguenti file:\n");
+				fflush(stdout);
+			}
+		}
+
+		if (receiveNFiles(dirname) == -1) {
+			free(readBuf);
+			return -1;
+		}
+	}
+
+	// invio il contenuto del file al server
+	if (writen(fd_skt, buf, size2) == -1) {
+		free(readBuf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	free(readBuf);
 	return 0;
 }
 

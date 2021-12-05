@@ -30,7 +30,7 @@ int cmd_f(char* socket);
 int cmd_W(char *filelist, char *Directory, int print);
 
 void testOpenFile() {
-		struct timespec ts;
+	struct timespec ts;
 	ts.tv_sec = 2;
 	ts.tv_nsec = 550;
 
@@ -105,6 +105,46 @@ void testWriteFile() {
 		perror("openFile");
 	}
 	printf("FINE TEST WRITEFILE\n");
+}
+
+void testAppendToFile() {
+	printf("INIZIO TEST APPENDTOFILE\n");
+	struct timespec ts;
+	ts.tv_sec = 2;
+	ts.tv_nsec = 550;
+
+	if (openConnection("mysock", 100, ts) != 0) {
+		return;
+	}
+
+	void *buf = malloc(256);
+	char str[256] = "Contenuto da appendere al file.\n";
+	size_t size = strlen(str)+1;
+	memcpy(buf, str, size);
+
+	printf("Scrivo un file che non ho aperto. Mi aspetto: perror\n");
+	if (appendToFile("test/filepesante", buf, size, "Wtest") == -1) {
+		perror("writeFile");
+	}
+
+	printf("Creo un file non lockato. Mi aspetto: ES\n");
+	if (openFile("test/fileleggero", 1) == -1) {
+		perror("openFile");
+	}
+
+	printf("Faccio l'append su un file creato e aperto da me. Mi aspetto: OK\n");
+	if (appendToFile("test/fileleggero", buf, size, "Wtest") == -1) {
+		perror("writeFile");
+	}
+
+	printf("Creo un altro file prima di chiudere l'altro. Mi aspetto: perror\n");
+	if (openFile("test/filepesante", 3) == -1) {
+		perror("openFile");
+	}
+
+	printf("FINE TEST APPENDTOFILE\n");
+
+	free(buf);
 }
 
 void stressTest(int startNum) {
@@ -223,9 +263,6 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	//testOpenFile();
-	//testWriteFile();
-
 	/*
 	int num = strtol(argv[1], NULL, 0);
 	stressTest(num);
@@ -236,11 +273,15 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	//testAppendToFile();
+	//testOpenFile();
+	//testWriteFile();
+
 	if (destroyCmdList(cmdList) == -1) {
 		perror("destroyCmdList");
 		return 1;
 	}
-
+	
 	return 0;
 }
 
@@ -486,7 +527,6 @@ int cmd_W(char *filelist, char *Directory, int print) {
 		// apro il file
 		if (openFile(token, 1) == -1) {
 			// se il file esiste gia', rifai la openFile senza O_CREATE
-			// TO-DO fare in modo di chiamare l'append in questo caso e non la writeFile
 			if (strcmp(strerror(errno), "File exists") == 0) {
 				if (openFile(token, 0) == -1) {
 					ok = 0;
@@ -498,6 +538,7 @@ int cmd_W(char *filelist, char *Directory, int print) {
 			}
 		}
 
+		// se il file e' stato aperto con successo...
 		else {
 			opened = 1;
 		}

@@ -113,6 +113,11 @@ int closeFileInQueue(queueT *queue, char *filepath, int client);
 /**
  * 
  */
+int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client);
+
+/**
+ * 
+ */
 int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client);
 
 /**

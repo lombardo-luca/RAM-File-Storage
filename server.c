@@ -47,7 +47,7 @@ int updateStats(logT *logFileT, queueT *queue, int miss);
 void printStats(logT *logFileT);
 int parser(char *command, queueT *queue, long fd_c, logT *logFileT);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
-void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT);
+void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT, int append);
 void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT);
 
 // funzioni ausiliarie
@@ -911,7 +911,7 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 	char *token = NULL, *save = NULL, *token2 = NULL, *token3 = NULL;
 	token = strtok_r(command, ":", &save);
 
-	// controllo il comando ricevuto e chiamo la procedura opportuna
+	// controllo quale comando ho ricevuto e chiamo la procedura opportuna
 	if (token && strcmp(token, "openFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
 		token3 = strtok_r(NULL, ":", &save);
@@ -925,7 +925,16 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 		token3 = strtok_r(NULL, ":", &save);
 		size_t sz = (size_t) strtol(token3, NULL, 0);
 
-		writeFile(token2, sz, queue, fd_c, logFileT);
+		writeFile(token2, sz, queue, fd_c, logFileT, 0);
+	}
+
+	else if (token && strcmp(token, "appendToFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+		token3 = strtok_r(NULL, ":", &save);
+		size_t sz = (size_t) strtol(token3, NULL, 0);
+
+		// l'operazione di append chiama la stessa procedura di writeFile ma con l'ultima variabile = 1
+		writeFile(token2, sz, queue, fd_c, logFileT, 1);
 	}
 
 	else if (token && strcmp(token, "closeFile") == 0) {
@@ -943,6 +952,7 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 	return 0;
 }
 
+// apri o crea un nuovo file nello storage
 void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
@@ -1131,7 +1141,8 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 		free(res);
 }
 
-void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT) {
+// sovrascrivi o fai l'append su un file gia' presente nello storage
+void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT, int append) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -1165,7 +1176,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 		}
 	}
 
-	printf("writeFile: found = %d\n", found);	
+	printf("writeFile: found = %d, append = %d\n", found, append);	
 	fflush(stdout);
 
 	// il file e' presente nel server
@@ -1234,12 +1245,17 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 			char writeFileSizeStr[32];
 			snprintf(writeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
-			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			if (append) {
+				strncat(writeFileStr, " ha richiesto una appendToFile sul file: ", 64);
+			}
+			else {
+				strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			}
 			strncat(writeFileStr, filepath, strlen(filepath)+1);
 			strncat(writeFileStr, " di dimensione ", 48);
 			snprintf(writeFileSizeStr, sizeof(size)+1, "%ld", size);
 			strncat(writeFileStr, writeFileSizeStr, strlen(writeFileSizeStr)+1);
-			strncat(writeFileStr, "B, che ha causato un capacity miss. I seguenti file sono stati espulsi:\n", 128);
+			strncat(writeFileStr, " B, che ha causato un capacity miss. I seguenti file sono stati espulsi:\n", 128);
 			if (writeLog(logFileT, writeFileStr) == -1) {
 				perror("writeLog");
 				goto cleanup;
@@ -1294,17 +1310,26 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 				goto cleanup;
 			}
 
-			// scrivi il file
-			// TO-DO: scrivere invece di append! 
-			if (appendFileInQueue(queue, filepath, content, size, fd_c) == -1) {
-				perror("writeFileT");
-				memcpy(res, er, 3);
+			// fai l'append del file
+			if (append) {
+				if (appendFileInQueue(queue, filepath, content, size, fd_c) == -1) {
+					perror("appendFileInQueue");
+					memcpy(res, er, 3);
+					goto cleanup;
+				}
 			}
 
+			// oppure sovrascrivilo
 			else {
-				// aggiorno il file delle statistiche
-				updateStats(logFileT, queue, 0);
+				if (writeFileInQueue(queue, filepath, content, size, fd_c) == -1) {
+					perror("writeFileInQueue");
+					memcpy(res, er, 3);
+					goto cleanup;
+				}
 			}
+
+			// aggiorno il file delle statistiche
+			updateStats(logFileT, queue, 0);
 		}
 
 		// se c'è stato un errore, invio errno al client
@@ -1319,7 +1344,12 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 			char writeFileFdStr[32];
 			snprintf(writeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
-			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			if (append == 1) {
+				strncat(writeFileStr, " ha richiesto una appendToFile sul file: ", 64);
+			}
+			else {
+				strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			}
 			strncat(writeFileStr, filepath, strlen(filepath)+1);
 			strncat(writeFileStr, ", terminata con errore.\n", 32);
 			if (writeLog(logFileT, writeFileStr) == -1) {
@@ -1348,12 +1378,17 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 			char writeFileSizeStr[32];
 			snprintf(writeFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 			strncat(writeFileStr, writeFileFdStr, strlen(writeFileFdStr)+1);
-			strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			if (append == 1) {
+				strncat(writeFileStr, " ha richiesto una appendToFile sul file: ", 64);
+			}
+			else {
+				strncat(writeFileStr, " ha richiesto una writeFile sul file: ", 64);
+			}
 			strncat(writeFileStr, filepath, strlen(filepath)+1);
 			strncat(writeFileStr, " di dimensione ", 48);
 			snprintf(writeFileSizeStr, sizeof(size)+1, "%ld", size);
 			strncat(writeFileStr, writeFileSizeStr, strlen(writeFileSizeStr)+1);
-			strncat(writeFileStr, "B, terminata con successo.\n", 32);
+			strncat(writeFileStr, " B, terminata con successo.\n", 32);
 			if (writeLog(logFileT, writeFileStr) == -1) {
 				perror("writeLog");
 				goto cleanup;
@@ -1371,6 +1406,7 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 		free(res);
 }
 
+// chiudi un file nello storage
 void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	int found = 0;
@@ -1504,7 +1540,7 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	strncat(sendFileStr, f->filepath, strlen(f->filepath)+1);
 	strncat(sendFileStr, ", di dimensione ", 20);
 	strncat(sendFileStr, sendFileSizeStr, strlen(sendFileSizeStr)+1);
-	strncat(sendFileStr, "B, e' stato inviato al client ", 35);
+	strncat(sendFileStr, " B, e' stato inviato al client ", 35);
 	strncat(sendFileStr, sendFileFdStr, strlen(sendFileFdStr)+1);
 	strncat(sendFileStr, ".\n", 3);
 	
