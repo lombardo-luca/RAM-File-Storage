@@ -168,7 +168,11 @@ int openFile(const char* pathname, int flags) {
 
 	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
 	else if (strcmp(res, "es") == 0) {
+		printf("\n\tIl server ha espulso il seguente file:\n");
+		fflush(stdout);
+
 		if (receiveFile(Directory) == -1) {
+			perror("receiveFIle");
 			free(buf);
 			return -1;
 		}
@@ -230,12 +234,15 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	printf("Dimensione: %ld B\t", size);
-	fflush(stdout);
-
+	if (print) {
+		printf("Dimensione: %ld B\t", size);
+		fflush(stdout);
+	}
+	
 	if (size >= BUFSIZE) {
 		if (print) {
 			printf("\nLa dimensione del file supera il limite (%d B). Solo i primi %d B saranno inviati.\n", BUFSIZE, BUFSIZE);
+			fflush(stdout);
 		}
 	}
 
@@ -307,7 +314,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	else if (strcmp(res, "es") == 0) {
 		if (print && dirname) {
 			if (strcmp(dirname, "") != 0) {
-				printf("\nIl server ha espulso i seguenti file:\n");
+				printf("\n\tIl server ha espulso i seguenti file:\n");
 				fflush(stdout);
 			}
 		}
@@ -539,6 +546,14 @@ int receiveFile(const char *dirname) {
 
 	// se e' stata passata una directory, usala per scriverci dentro i file ricevuti dal serevr
 	if (dirname && strcmp(dirname, "") != 0) {
+		// se la directory non esiste, creala
+		if (mkdir(dirname, 0777) == -1) {
+			if (strcmp(strerror(errno), "File exists") != 0) {
+				free(buf);
+				return -1;
+			}
+		}
+
 		strncpy(dir, dirname, strlen(dirname)+1);
 
 		if (dir[strlen(dir)] != '/') {
@@ -581,6 +596,12 @@ int receiveFile(const char *dirname) {
 
 	//printf("Ho ricevuto il contenuto!\n");
 
+	if (print && strcmp(dir, "") != 0) {
+		printf("\t%-20s", filepath);
+		printf("\tDimensione: %ld B\n", size);
+		fflush(stdout);
+	}
+
 	if (strcmp(dir, "") != 0) {
 		//printf("SCRITTURA SU FILE\n");
 		memset(filename, '\0', 256);
@@ -607,8 +628,7 @@ int receiveFile(const char *dirname) {
 
 		// Apro file di output
 		int fdo;
-		if ((fdo = open(fullpath, O_CREAT | O_WRONLY, 0666)) == -1) {
-			perror("open\n");
+		if ((fdo = open(fullpath, O_WRONLY | O_CREAT, 0666)) == -1) {
 			free(content);
 	    	free(filename);
 	    	free(buf);
@@ -616,7 +636,6 @@ int receiveFile(const char *dirname) {
 		}
 
 		if (write(fdo, content, size) == -1) {
-			perror("write\n");
 			free(content);
 	    	free(filename);
 	    	free(buf);
@@ -630,15 +649,6 @@ int receiveFile(const char *dirname) {
 	    	return -1;
 		}
 	}
-
-	/*
-	printf("TEST SCRITTURA SU FILE\n");
-    FILE* opf = fopen("testscritturaCLIENT", "w");
-    printf("Voglio scrivere %ld bytes\n", size);
-    fwrite(content, 1, size, opf);
-    fclose(opf);
-    printf("FINE TEST SCRITTURA SU FILE\n");
-	*/
 
 	free(filename);
 	free(content);
@@ -686,7 +696,7 @@ int receiveNFiles(const char *dirname) {
 		}
 
 		if (print && strcmp(dir, "") != 0) {
-			printf("%-20s", filepath);
+			printf("\t%-20s", filepath);
 		}
 
 		// poi ricevo la dimensione del file...

@@ -8,6 +8,8 @@
 #include <string.h>
 #include <time.h>
 #include <signal.h>
+#include <ctype.h>
+#include <ftw.h>
 
 #include <api.h>
 #include <partialIO.h>
@@ -23,11 +25,23 @@ typedef struct struct_cmd {
 	struct struct_cmd *next;	// puntatore al prossimo comando nella lista
 } cmdT;
 
+typedef struct struct_cmd_w {
+	char Directory[256];
+	int print;
+	int maxN;
+	int currN;
+}	cmd_w_T;
+
+// variabile globale di appoggio per il comando -w
+static cmd_w_T *wT;
+
 int addCmd(cmdT **cmdList, char cmd, char *arg);
 int execute(cmdT *cmdList, int print);
 int destroyCmdList(cmdT *cmdList);
 int cmd_f(char* socket);
-int cmd_W(char *filelist, char *Directory, int print);
+int cmd_w(char *dirname, int print);
+int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag);
+int cmd_W(const char *filelist, char *Directory, int print);
 
 void testOpenFile() {
 	struct timespec ts;
@@ -204,7 +218,7 @@ int main(int argc, char* argv[]) {
 	cmdList = calloc(1, sizeof(cmdT));
 	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hpf:t:W:D:")) != -1) {
+	while ((opt = getopt(argc, argv, "hpf:t:w:W:D:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
@@ -236,6 +250,7 @@ int main(int argc, char* argv[]) {
 				}
 				break;
 
+			// abilita le stampe su stdout per ogni operazione
 			case 'p':
 				if (p) {
 					printf("Il comando -p puo' essere usato solo una volta.\n");
@@ -249,9 +264,22 @@ int main(int argc, char* argv[]) {
 				}
 				break;
 
+			case 'w':	// scrivi sul server 'n' file contenuti in una cartella
+				// alloca la memoria per la variabile globale che contiene le informazioni necessarie per cmd_w
+				if ((wT = (cmd_w_T*) calloc(1, sizeof(cmd_w_T))) == NULL) {
+					perror("calloc wT");
+					destroyCmdList(cmdList);
+					return 1;
+				}
+
+				memset(args, '\0', 256);
+				strncpy(args, optarg, strlen(optarg)+1);
+				addCmd(&cmdList, opt, args);
+				break;
+
 			case 't':	// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
 			case 'W':	// lista di nomi di file da scrivere nel server separati da virgole
-			case 'D':	// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
+ 			case 'D':	// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
 				memset(args, '\0', 256);
 				strncpy(args, optarg, strlen(optarg)+1);
 				addCmd(&cmdList, opt, args);
@@ -270,6 +298,9 @@ int main(int argc, char* argv[]) {
 
 	if (execute(cmdList, p) == -1) {
 		perror("execute");
+		if (wT) {
+			free(wT);
+		}
 		return 1;
 	}
 
@@ -279,9 +310,15 @@ int main(int argc, char* argv[]) {
 
 	if (destroyCmdList(cmdList) == -1) {
 		perror("destroyCmdList");
+		if (wT) {
+			free(wT);
+		}
 		return 1;
 	}
 	
+	if (wT) {
+		free(wT);
+	}
 	return 0;
 }
 
@@ -368,7 +405,9 @@ int execute(cmdT *cmdList, int print) {
 				strncpy(sock, temp->arg, strlen(temp->arg)+1);
 
 				if (cmd_f(temp->arg) != 0) {
-					perror("f");
+					if (print) {
+						perror("-f");
+					}
 					ok = 0;
 				}
 
@@ -414,6 +453,36 @@ int execute(cmdT *cmdList, int print) {
 				}
 				break;
 
+			// scrivi sul server 'n' file contenuti in una cartella
+			case 'w':
+				memset(Dir, '\0', 256);
+				w = 1;
+
+				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
+				if (temp->next) {
+					if ((temp->next)->cmd == 'D') {
+						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
+
+						if (setDirectory(Dir) == -1) {
+							if (print) {
+								perror("-D");
+							}
+						}
+
+						if (print) {
+							printf("\nD - Cartella per le scritture del comando -w: %s\tEsito: ok\n", Dir);
+						}
+					}
+				}
+
+				if (cmd_w(temp->arg, print) != 0) {
+					if (print) {
+						perror("-w");
+					}
+				}
+
+				break;
+
 			// lista di nomi di file da scrivere nel server separati da virgole
 			case 'W':
 				memset(Dir, '\0', 256);
@@ -425,15 +494,21 @@ int execute(cmdT *cmdList, int print) {
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
 						if (setDirectory(Dir) == -1) {
-							perror("setDirectory");
+							if (print) {
+								perror("-D");
+							}
 						}
 
-						printf("\nD - Cartella per le scritture: %s\tEsito: ok\n", Dir);
+						if (print) {
+							printf("\nD - Cartella per le scritture del comando -W: %s\tEsito: ok\n", Dir);
+						}
 					}
 				}
 
 				if (cmd_W(temp->arg, Dir, print) != 0) {
-					perror("W");
+					if (print) {
+						perror("-W");
+					}
 				}
 
 				break;
@@ -488,6 +563,7 @@ int destroyCmdList(cmdT *cmdList) {
 
 // connettiti al socket specificato
 int cmd_f(char* socket) {
+	// controllo la validita' dell argomento
 	if (!socket) {
 		errno = EINVAL;
 	}
@@ -504,8 +580,104 @@ int cmd_f(char* socket) {
 	return 0;
 }
 
+// scrivi sul server 'n' file contenuti in una cartella
+int cmd_w(char *dirname, int print) {
+	if (!dirname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	wT->maxN = 0;
+	wT->currN = 0;
+	char *token = NULL, *save = NULL;
+	token = strtok_r(dirname, ",", &save);
+	char Dir[256] = "";
+	int cnt = 0;
+	
+	while (token != NULL && cnt < 2) {
+		if (cnt == 0) {
+			strncpy(Dir, token, strlen(token)+1);
+		}
+
+		// controlla se nel comando e' specificata l'opzione 'n'
+		else if (cnt == 1) {
+			if (strlen(token) > 2) {
+				if (token[0] == 'n' && token[1] == '=') {
+					char *number = token+2;
+					for (int i = 0; i < strlen(number); i++) {
+						if (!isdigit(number[i])) {
+							errno = EINVAL;
+							return -1;
+						}
+					}
+
+					int num = (int) strtol(number, NULL, 0);
+					if (num != 0) {
+						wT->maxN = num;
+					}
+				}
+
+				else {
+					errno = EINVAL;
+					return -1;
+				}
+			}
+		}
+
+		token = strtok_r(NULL, ",", &save);
+		cnt++;
+	}
+
+	if (print) {
+		wT->print = 2;
+	}
+
+	else {
+		wT->print = 0;
+	}
+
+	strncpy(wT->Directory, Dir, strlen(Dir)+1);
+
+	if (print) {
+		printf("\nw - Scrivo i seguenti file sul server:");
+		fflush(stdout);
+	}
+
+	ftw(Dir, cmd_w_aux, FOPEN_MAX);
+
+	return 0;
+}
+
+// funzione ausiliaria del comando -w. Viene passata come argomento della funzione ftw
+int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag) {
+	// controllo la validita' degli argomenti
+	if (!ftw_filePath || !ptr) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (flag != FTW_F) {
+		return 0;
+	}
+
+	wT->currN++;
+
+	if (wT->maxN != 0 && wT->currN > wT->maxN) {
+		return -1;
+	}
+
+	if (cmd_W(ftw_filePath, wT->Directory, wT->print) == -1) {
+		if (wT->print) {
+			perror("-w");
+		}
+	}
+
+	return 0;
+}
+
 // scrivi una lista di file sul server
-int cmd_W(char *filelist, char *Directory, int print) {
+int cmd_W(const char *filelist, char *Directory, int print) {
+	// controllo la validita' degli argomenti
 	if (!filelist || !Directory) {
 		errno = EINVAL;
 		return -1;
@@ -513,16 +685,24 @@ int cmd_W(char *filelist, char *Directory, int print) {
 
 	// parso la lista di file da scrivere
 	char *token = NULL, *save = NULL;
-	token = strtok_r(filelist, ",", &save);
+	char tokenList[256] = "";
+	strncpy(tokenList, filelist, strlen(filelist)+1);
+	token = strtok_r(tokenList, ",", &save);
 	int ok = 1;
 
-	printf("\nW - Scrivo i seguenti file sul server:");
+	if (print == 1) {
+		printf("\nW - Scrivo i seguenti file sul server:\n");
+		fflush(stdout);
+	}
 
 	// per ogni file nella lista...
 	while (token != NULL) {
 		ok = 1;
 		int opened = 0;
-		printf("\n%-20s", token); 
+		if (print != 0) {
+			printf("\n%-20s", token); 
+			fflush(stdout);
+		}
 
 		// apro il file
 		if (openFile(token, 1) == -1) {
@@ -539,36 +719,38 @@ int cmd_W(char *filelist, char *Directory, int print) {
 		}
 
 		// se il file e' stato aperto con successo...
-		else {
+		if (ok) {
 			opened = 1;
 		}
-
+		
 		// scrivo il contenuto del file sul server
 		if (ok && writeFile(token, Directory) == -1) {
-			perror("writeFile\n");
 			ok = 0;
 		}
 
 		// chiudo il file
 		if (opened && closeFile(token) == -1) {
-			perror("closeFile\n");
 			ok = 0;
 		}
 
-		printf("Esito: "); 
+		if (print != 0) {
+			printf("Esito: "); 
 
-		if (ok) {
-			printf("ok");
-		}
-		
-		else {
-			printf("errore");
+			if (ok) {
+				printf("ok");
+			}
+			
+			else {
+				printf("errore");
+			}
+
+			printf("\n");
+			fflush(stdout);
 		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
 
-	printf("\n");
 	if (ok) {
 		return 0;
 	}
@@ -577,3 +759,4 @@ int cmd_W(char *filelist, char *Directory, int print) {
 		return -1;
 	}
 }
+
