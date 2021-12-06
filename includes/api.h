@@ -36,6 +36,14 @@ int closeConnection(const char* sockname);
 int openFile(const char* pathname, int flags);
 
 /**
+ * Legge tutto il contenuto del file dal server (se esiste) ritornando un puntatore ad un'area allocata sullo heap nel
+ * parametro ‘buf’, mentre ‘size’ conterrà la dimensione del buffer dati (ossia la dimensione in bytes del file letto). 
+ * In caso di errore, ‘buf‘e ‘size’ non sono validi. 
+ * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
+ */
+int readFile(const char* pathname, void** buf, size_t* size);
+
+/**
  * Scrive tutto il file puntato da pathname nel file server. Ritorna successo solo se la precedente operazione,
  * terminata con successo, è stata openFile(pathname, O_CREATE| O_LOCK). Se ‘dirname’ è diverso da NULL, 
  * il file eventualmente spedito dal server perche' espulso dalla cache per far posto al file "pathname" dovra' essere
@@ -44,7 +52,11 @@ int openFile(const char* pathname, int flags);
 int writeFile(const char* pathname, const char* dirname);
 
 /**
- * 
+ * Richiesta di scrivere in append al file ‘pathname‘ i ‘size‘ bytes contenuti nel buffer ‘buf’. 
+ * L’operazione di append nel file è garantita essere atomica dal file server. 
+ * Se ‘dirname’ è diverso da NULL, il file eventualmente spedito dal server perchè 
+ * espulso dalla cache per far posto ai nuovi dati di ‘pathname’ dovrà essere scritto in ‘dirname’.
+ * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente. 
  */
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname);
 
@@ -56,7 +68,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 int closeFile(const char *pathname);
 
 // Funzioni ausiliarie
-int receiveFile(const char *dirname);
+int receiveFile(const char *dirname, void **bufA, size_t *sizeA);
 int receiveNFiles(const char *dirname);
 void printInfo(int p);
-int setDirectory(char* Dir);
+int setDirectory(char* Dir, int rw);

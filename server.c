@@ -47,8 +47,9 @@ int updateStats(logT *logFileT, queueT *queue, int miss);
 void printStats(logT *logFileT);
 int parser(char *command, queueT *queue, long fd_c, logT *logFileT);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
-void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT, int append);
-void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT);
+void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
+void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logFileT, int append);
+void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
 
 // funzioni ausiliarie
 int sendFile(fileT *f, long fd_c, logT *logFileT);
@@ -920,6 +921,12 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 		openFile(token2, arg, queue, fd_c, logFileT);
 	}
 
+	else if (token && strcmp(token, "readFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+
+		readFile(token2, queue, fd_c, logFileT);
+	}
+
 	else if (token && strcmp(token, "writeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
 		token3 = strtok_r(NULL, ":", &save);
@@ -953,7 +960,7 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 }
 
 // apri o crea un nuovo file nello storage
-void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFileT) {
+void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -1141,8 +1148,101 @@ void openFile(char *filepath, int flags, queueT* queue, long fd_c, logT *logFile
 		free(res);
 }
 
+// leggi un file dallo storage e invialo al client
+void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT) {
+	void *res = malloc(BUFSIZE);
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	void *buf = NULL;
+
+	memcpy(res, ok, 3);
+
+	// controllo la validita' degli argomenti
+	if (!filepath || !queue || !logFileT) {
+		errno = EINVAL;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// cerco il file da leggere nello storage
+	fileT *findF = NULL;
+	findF = find(queue, filepath);
+
+	// se il file non e' presente, errore
+	if (findF == NULL) {
+		errno = ENOENT;
+		memcpy(res, er, 3);
+	}
+
+	// invia risposta al client
+	send:
+		buf = malloc(BUFSIZE);
+		
+		memcpy(buf, res, 3);
+
+		if (writen(fd_c, buf, 3) == -1) {
+			perror("writen");
+			goto cleanup;
+		}
+
+		// se c'e' stato un errore, invio errno al client
+		if(strcmp(res, "er") == 0) {			
+			if (writen(fd_c, &errno, sizeof(int)) == -1) {
+				perror("writen");
+				goto cleanup;
+			}
+
+			// scrivo sul logFile
+			char readFileStr[512] = "Il client ";
+			char readFileFdStr[32];
+			snprintf(readFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			strncat(readFileStr, readFileFdStr, strlen(readFileFdStr)+1);
+			strncat(readFileStr, " ha richiesto una readFile sul file: ", 64);
+			strncat(readFileStr, filepath, strlen(filepath)+1);
+			strncat(readFileStr, ", terminata con errore.\n", 32);
+			if (writeLog(logFileT, readFileStr) == -1) {
+				perror("writeLog");
+			}	
+		}
+
+		// altrimenti, invia il file al client
+		else {
+			if (sendFile(findF, fd_c, logFileT) == -1) {
+				perror("sendFile");
+				goto cleanup;
+			}
+
+			else {
+				// scrivo sul logFile
+				char readFileStr[512] = "Il client ";
+				char readFileFdStr[32];
+				snprintf(readFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+				strncat(readFileStr, readFileFdStr, strlen(readFileFdStr)+1);
+				strncat(readFileStr, " ha richiesto una readFile sul file: ", 64);
+				strncat(readFileStr, filepath, strlen(filepath)+1);
+				strncat(readFileStr, ", terminata con successo.\n", 32);
+				if (writeLog(logFileT, readFileStr) == -1) {
+					perror("writeLog");
+				}	
+			}
+		}
+
+	cleanup:
+		if (buf) {
+			free(buf);
+		}
+
+		if (findF) {
+			destroyFile(findF);
+		}
+
+		if (res) {
+			free(res);
+		}
+}
+
 // sovrascrivi o fai l'append su un file gia' presente nello storage
-void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logFileT, int append) {
+void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logFileT, int append) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -1155,13 +1255,13 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 	memcpy(res, ok, 3);
 	
 	// controllo la validita' degli argomenti
-	if (!filepath || !queue) {
+	if (!filepath || !queue || !logFileT) {
 		errno = EINVAL;
 		memcpy(res, er, 3);
 		goto send;
 	}
 
-	// cerco se il file su cui si vuole scrivere e' presente nel server
+	// verifico se il file su cui si vuole scrivere e' presente nello storage
 	fileT *findF = NULL;
 	findF = find(queue, filepath);
 	if (findF != NULL) {
@@ -1176,8 +1276,8 @@ void writeFile(char *filepath, size_t size, queueT* queue, long fd_c, logT *logF
 		}
 	}
 
-	printf("writeFile: found = %d, append = %d\n", found, append);	
-	fflush(stdout);
+	//printf("writeFile: found = %d, append = %d\n", found, append);	
+	//fflush(stdout);
 
 	// il file e' presente nel server
 	if (found) {

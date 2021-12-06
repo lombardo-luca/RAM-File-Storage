@@ -23,7 +23,8 @@ static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
 static char openedFile[256] = "";			// filepath del file attualmente aperto
-static char Directory[256] = ""; 	// cartella sulla quale scrivere i file espulsi dal server in seguito a una openFile
+static char writingDirectory[256] = ""; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
+static char readingDirectory[256] = "";		// cartella dove scrivere i file letti dal server
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
 	// controllo la validità dei parametri
@@ -168,10 +169,12 @@ int openFile(const char* pathname, int flags) {
 
 	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
 	else if (strcmp(res, "es") == 0) {
-		printf("\n\tIl server ha espulso il seguente file:\n");
-		fflush(stdout);
+		if (print && (strcmp(writingDirectory, "") != 0)) {
+			printf("\n\tIl server ha espulso il seguente file:\n");
+			fflush(stdout);
+		}
 
-		if (receiveFile(Directory) == -1) {
+		if (receiveFile(writingDirectory, NULL, NULL) == -1) {
 			perror("receiveFIle");
 			free(buf);
 			return -1;
@@ -186,8 +189,80 @@ int openFile(const char* pathname, int flags) {
 	return 0;
 }
 
+int readFile(const char* pathname, void** buf, size_t* size) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo che il client sia effettivamente connesso al server
+	if (strcmp(socketName, "") == 0) {
+		errno = ENOTCONN;
+		return -1;
+	}
+
+	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
+	if (strcmp(openedFile, pathname) != 0) {
+		errno = EPERM;
+		return -1;
+	}
+
+	void *bufRes = malloc(BUFSIZE);
+	char cmd[CMDSIZE] = "";
+
+	// preparo il comando da inviare al server in formato readFile:pathname
+	memset(cmd, '\0', CMDSIZE);
+	strncpy(cmd, "readFile:", 11);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+
+	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+		free(bufRes);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	// ricevo la risposta dal server
+	int r = readn(fd_skt, bufRes, 3);
+	if (r == -1 || r == 0) {
+		free(bufRes);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, bufRes, 3);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(bufRes, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, bufRes, sizeof(int))) == -1) {
+			free(bufRes);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, bufRes, sizeof(int));
+		free(bufRes);
+		return -1;
+	}
+
+	else {
+		if (receiveFile(readingDirectory, buf, size) == -1) {
+			free(bufRes);
+			return -1;
+		}
+	}
+
+	free(bufRes);
+	return 0;
+}
+
 int writeFile(const char* pathname, const char* dirname) {
-	// controllo la validità degli argomenti
+	// controllo la validita' degli argomenti
 	if (!pathname || strlen(pathname) >= BUFSIZE) {
 		errno = EINVAL;
 		return -1;
@@ -265,8 +340,6 @@ int writeFile(const char* pathname, const char* dirname) {
 	//printf("writeFile: invio %s!\n", cmd);
 	//fflush(stdout);
 
-	//printf("writeFile: aspetto la writen...\n");
-	//fflush(stdout);
 	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
 		free(buf);
 		free(content);
@@ -274,8 +347,6 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	//printf("writeFile: aspetto la readn...\n");
-	//fflush(stdout);
 	// ricevo la risposta dal server
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
@@ -314,6 +385,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	else if (strcmp(res, "es") == 0) {
 		if (print && dirname) {
 			if (strcmp(dirname, "") != 0) {
+				printf("dirname = %s\n", dirname);
 				printf("\n\tIl server ha espulso i seguenti file:\n");
 				fflush(stdout);
 			}
@@ -535,7 +607,7 @@ int closeFile(const char* pathname) {
 }
 
 // funzione ausiliaria che riceve un file dal server
-int receiveFile(const char *dirname) {
+int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	void *buf = malloc(BUFSIZE);
 	memset(buf, 0, BUFSIZE);
 	char filepath[BUFSIZE];
@@ -584,6 +656,10 @@ int receiveFile(const char *dirname) {
 	//printf("Ho ricevuto size = %ld\n", size);
 	//fflush(stdout);
 
+	if (sizeA) {
+		*sizeA = size;
+	}
+
 	content = malloc(size);
 
 	// ...e infine il contenuto
@@ -594,6 +670,10 @@ int receiveFile(const char *dirname) {
 		return -1;
 	}
 
+	if (bufA) {
+		*bufA = calloc(1, size);
+		memcpy(*bufA, content, size);
+	}
 	//printf("Ho ricevuto il contenuto!\n");
 
 	if (print && strcmp(dir, "") != 0) {
@@ -657,7 +737,7 @@ int receiveFile(const char *dirname) {
 	return 0;
 }
 
-// funzione ausiliaria che riceve N files dal server
+// funzione ausiliaria che riceve N files  dal server
 int receiveNFiles(const char *dirname) {
 	void *buf = NULL;
 	buf = malloc(BUFSIZE);
@@ -755,7 +835,6 @@ int receiveNFiles(const char *dirname) {
 			// Apro file di output
 			int fdo;
 			if ((fdo = open(fullpath, O_CREAT | O_WRONLY, 0666)) == -1) {
-				perror("open\n");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -763,7 +842,6 @@ int receiveNFiles(const char *dirname) {
 			}
 
 			if (write(fdo, content, size) == -1) {
-				perror("write\n");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -787,19 +865,23 @@ int receiveNFiles(const char *dirname) {
 	return 0;
 }
 
-/**
- * imposta la cartella sulla quale scrivere i file espulsi dal server 
- * in seguito alla creazione di un file che ha generato una capacity miss
- */ 
-int setDirectory(char* Dir) {
+// imposta la cartella sulla quale scrivere i file letti dal server o espulsi in seguito a capacity misses
+int setDirectory(char* Dir, int rw) {
 	// controllo la validita' dell'argomento
 	if (!Dir || strlen(Dir) >= 256) {
 		errno = EINVAL;
 		return -1;
 	}
 
-	memset(Directory, '\0', 256);
-	strncpy(Directory, Dir, strlen(Dir)+1);
+	if (rw == 1) {
+		memset(writingDirectory, '\0', 256);
+		strncpy(writingDirectory, Dir, strlen(Dir)+1);
+	}
+
+	else {
+		memset(readingDirectory, '\0', 256);
+		strncpy(readingDirectory, Dir, strlen(Dir)+1);
+	}
 
 	return 0;
 }

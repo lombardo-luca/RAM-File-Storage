@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/un.h> 	
 #include <errno.h>
 #include <string.h>
@@ -39,9 +41,10 @@ int addCmd(cmdT **cmdList, char cmd, char *arg);
 int execute(cmdT *cmdList, int print);
 int destroyCmdList(cmdT *cmdList);
 int cmd_f(char* socket);
-int cmd_w(char *dirname, int print);
+int cmd_w(char *dirname, char *Directory, int print);
 int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag);
 int cmd_W(const char *filelist, char *Directory, int print);
+int cmd_r(const char *filelist, char *directory, int print);
 
 void testOpenFile() {
 	struct timespec ts;
@@ -218,7 +221,7 @@ int main(int argc, char* argv[]) {
 	cmdList = calloc(1, sizeof(cmdT));
 	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hpf:t:w:W:D:")) != -1) {
+	while ((opt = getopt(argc, argv, "hpf:t:w:W:D:r:d:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
@@ -278,8 +281,10 @@ int main(int argc, char* argv[]) {
 				break;
 
 			case 't':	// tempo in millisecondi che intercorre tra l’invio di due richieste successive al server
-			case 'W':	// lista di nomi di file da scrivere nel server separati da virgole
+			case 'W':	// lista di nomi di file da scrivere nel server, separati da virgole
+			case 'r': 	// lista di nomi di file da leggere dal server, separati da virgole
  			case 'D':	// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
+ 			case 'd':	// cartella dove vengono scritti i file letti dal server
 				memset(args, '\0', 256);
 				strncpy(args, optarg, strlen(optarg)+1);
 				addCmd(&cmdList, opt, args);
@@ -381,7 +386,9 @@ int execute(cmdT *cmdList, int print) {
 	temp = cmdList;
 	char sock[256] = "";	// socket che viene impostato con il comando -f
 	int w = 0;				// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
-	char Dir[256] = "";		// cartella su cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
+	int r = 0;				// se = 1, l'ultimo comando letto e' una lettura (-r o -R)
+	char Dir[256] = "";		// cartella in cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
+	char dir[256] = "";		// cartella in cui scrivere i file letti dal server
 
 	// variabili per gestire il comando -t
 	struct timespec tim1, tim2;
@@ -402,6 +409,7 @@ int execute(cmdT *cmdList, int print) {
 			// connettiti al socket AF_UNIX specificato
 			case 'f':
 				w = 0;
+				r = 0;
 				strncpy(sock, temp->arg, strlen(temp->arg)+1);
 
 				if (cmd_f(temp->arg) != 0) {
@@ -432,6 +440,7 @@ int execute(cmdT *cmdList, int print) {
 			// imposto il tempo che intercorre tra l’invio di due richieste successive al server
 			case 't':
 				w = 0;
+				r = 0;
 				num = strtol(temp->arg, NULL, 0);
 
 				// converto i msec inseriti dall'utente in secondi e nanosecondi per la nanosleep
@@ -457,13 +466,14 @@ int execute(cmdT *cmdList, int print) {
 			case 'w':
 				memset(Dir, '\0', 256);
 				w = 1;
+				r = 0;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'D') {
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
-						if (setDirectory(Dir) == -1) {
+						if (setDirectory(Dir, 1) == -1) {
 							if (print) {
 								perror("-D");
 							}
@@ -475,11 +485,7 @@ int execute(cmdT *cmdList, int print) {
 					}
 				}
 
-				if (cmd_w(temp->arg, print) != 0) {
-					if (print) {
-						perror("-w");
-					}
-				}
+				cmd_w(temp->arg, Dir, print);
 
 				break;
 
@@ -487,13 +493,14 @@ int execute(cmdT *cmdList, int print) {
 			case 'W':
 				memset(Dir, '\0', 256);
 				w = 1;
+				r = 0;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'D') {
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
-						if (setDirectory(Dir) == -1) {
+						if (setDirectory(Dir, 1) == -1) {
 							if (print) {
 								perror("-D");
 							}
@@ -505,12 +512,8 @@ int execute(cmdT *cmdList, int print) {
 					}
 				}
 
-				if (cmd_W(temp->arg, Dir, print) != 0) {
-					if (print) {
-						perror("-W");
-					}
-				}
-
+				cmd_W(temp->arg, Dir, print);
+				
 				break;
 
 			// imposta la cartella dove scrivere i file che il server rimuove a seguito di capacity misses in scrittura
@@ -521,6 +524,45 @@ int execute(cmdT *cmdList, int print) {
 				}
 
 				w = 0;
+				r = 0;
+
+				break;
+
+			// leggi dal server una lista di file da leggere dal server, separati da virgole
+			case 'r':
+				memset(Dir, '\0', 256);
+				r = 1;
+				w = 0;
+
+				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
+				if (temp->next) {
+					if ((temp->next)->cmd == 'd') {
+						strncpy(dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
+
+						if (setDirectory(dir, 0) == -1) {
+							if (print) {
+								perror("-d");
+							}
+						}
+
+						if (print) {
+							printf("\nd - Cartella per le letture del comando -r: %s\tEsito: ok\n", dir);
+						}
+					}
+				}
+
+				cmd_r(temp->arg, dir, print);
+
+				break;
+
+			case 'd':
+				// se il comando precedentemente non era una scrittura (-w o -W), errore
+				if (!r) {
+					printf("\nErrore: l'opzione -d deve essere usata congiuntamente all'opzione -r o -R.\n");
+				}
+
+				w = 0;
+				r = 0;
 
 				break;
 		}
@@ -581,7 +623,7 @@ int cmd_f(char* socket) {
 }
 
 // scrivi sul server 'n' file contenuti in una cartella
-int cmd_w(char *dirname, int print) {
+int cmd_w(char *dirname, char *Directory, int print) {
 	if (!dirname) {
 		errno = EINVAL;
 		return -1;
@@ -636,7 +678,7 @@ int cmd_w(char *dirname, int print) {
 		wT->print = 0;
 	}
 
-	strncpy(wT->Directory, Dir, strlen(Dir)+1);
+	strncpy(wT->Directory, Directory, strlen(Dir)+1);
 
 	if (print) {
 		printf("\nw - Scrivo i seguenti file sul server:");
@@ -742,6 +784,14 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 			
 			else {
 				printf("errore");
+
+				if (print == 1) {
+					perror("-W");
+				}
+
+				else {
+					perror("-w");
+				}
 			}
 
 			printf("\n");
@@ -760,3 +810,91 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 	}
 }
 
+int cmd_r(const char *filelist, char *directory, int print) {
+	if (!filelist || !directory) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// parso la lista di file da leggere
+	char *token = NULL, *save = NULL;
+	char tokenList[256] = "";
+	strncpy(tokenList, filelist, strlen(filelist)+1);
+	token = strtok_r(tokenList, ",", &save);
+	int ok = 1;
+
+	if (print) {
+		printf("\nr - Leggo i seguenti file dal server:\n");
+		fflush(stdout);
+	}
+
+	// per ogni file nella lista...
+	while (token != NULL) {
+		ok = 1;
+		int opened = 0;
+		if (print != 0) {
+			printf("\n%-20s", token); 
+			fflush(stdout);
+		}
+
+		// apro il file
+		if (openFile(token, 0) == -1) {
+			ok = 0;
+		}
+
+		// se il file e' stato aperto con successo...
+		else {
+			opened = 1;
+		}
+		
+		void *buf = NULL;
+		size_t size = -1;
+
+		// leggo il contenuto del file
+		printInfo(0);
+		if (ok && readFile(token, &buf, &size) == -1) {
+			ok = 0;
+		}
+		printInfo(1);
+
+		if (ok && print) {
+			printf("Dimensione: %zu B\t", size);
+			fflush(stdout);
+		}
+
+		if (buf) {
+			free(buf);
+		}
+
+		// chiudo il file
+		if (opened && closeFile(token) == -1) {
+			ok = 0;
+		}
+
+		if (print) {
+			printf("Esito: "); 
+
+			if (ok) {
+				printf("ok");
+			}
+			
+			else {
+				printf("errore");
+				perror("-r");
+			}
+
+			printf("\n");
+			fflush(stdout);
+		}
+
+		token = strtok_r(NULL, ",", &save);
+	}
+
+	if (ok) {
+		return 0;
+	}
+
+	else {
+		return -1;
+	}
+}
