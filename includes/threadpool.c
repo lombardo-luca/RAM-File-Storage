@@ -13,7 +13,6 @@ static void *workerpool_thread(void *threadpool) {
     pthread_t self = pthread_self();
     int myid = -1;
 
-    // non efficiente, si può fare meglio...
     do {
     	for (int i=0; i<pool->numthreads; ++i) {
     	    if (pthread_equal(pool->threads[i], self)) {
@@ -73,7 +72,7 @@ static void *workerpool_thread(void *threadpool) {
         return NULL;                               
     }
 
-    fprintf(stderr, "thread %d exiting\n", myid);
+    fprintf(stderr, "Thread %d exiting...\n", myid);
     return NULL;
 }
 

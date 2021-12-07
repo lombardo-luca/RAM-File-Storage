@@ -37,6 +37,7 @@ typedef struct struct_thread {
 	long *args;
 	queueT *queue;
 	logT *logFileT;
+	threadpool_t *pool;
 } threadT;
 
 static void serverThread(void *par);
@@ -440,6 +441,7 @@ int main(int argc, char *argv[]) {
 			    			t->args[2] = (long) requestPipe[1];
 			    			t->queue = queue;
 			    			t->logFileT = logFileT;
+			    			t->pool = pool;
 							int r = addToThreadPool(pool, serverThread, (void*) t);
 
 							// task aggiunto alla pool con successo
@@ -569,6 +571,7 @@ int main(int argc, char *argv[]) {
 			    		t->args[2] = (long) requestPipe[1];
 			    		t->queue = queue;
 			    		t->logFileT = logFileT;
+			    		t->pool = pool;
 						int r = addToThreadPool(pool, serverThread, (void*) t);
 
 						// task aggiunto alla pool con successo
@@ -656,9 +659,18 @@ static void serverThread(void *par) {
 	int pipe = (int) (args[2]);
 	queueT *queue = t->queue;
 	logT *logFileT = t->logFileT;
+	threadpool_t *pool = t->pool;
 	sigset_t sigset;
 	fd_set set, tmpset;	
 	pthread_t tid = pthread_self();		// identificatore del thread worker
+    int myid = -1;
+
+    for (int i = 0; i < pool->numthreads; i++) {
+    	if (pthread_equal(pool->threads[i], tid)) {
+        	myid = i;
+        	break;
+        }
+    } 
 
 	// libera la memoria del threadT passato come parametro
 	free(par);
@@ -757,7 +769,7 @@ static void serverThread(void *par) {
 	char workStr[128] = "Il thread ";
 	char tidStr[64];
 	char fdWorkStr[64];
-	snprintf(tidStr, sizeof(pthread_t)+1, "%ld", tid);
+	snprintf(tidStr, sizeof(myid)+1, "%d", myid);
 	snprintf(fdWorkStr, sizeof(fd_c)+1, "%ld", fd_c);
 	strncat(workStr, tidStr, strlen(tidStr)+1);
 	strncat(workStr, " ha servito una richiesta del client ", 64);
