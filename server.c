@@ -1284,8 +1284,13 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 		printf("Il file e' locked? %d Owner = %d Client = %ld\n", findF->O_LOCK, findF->owner, fd_c);
 		fflush(stdout);
 
-		// controllo se il client ha i permessi per scrivere sul file
-		if (!findF->open || (findF->O_LOCK && findF->owner != fd_c)) {
+		/**
+		 * controllo se il client ha i permessi per scrivere sul file:
+		 * 1) il file dev'essere stato aperto
+		 * 2) se la scrittura non e' in modalita' append, il file dev'essere in modalita' locked
+		 * 3) se il file e' in modalita' locked, l'owner deve corrispondere al client che sta richiedendo la scrittura
+		 */ 
+		if (!findF->open || (!append && !findF->O_LOCK) || (findF->O_LOCK && findF->owner != fd_c)) {
 			errno = EPERM;
 			memcpy(res, er, 3);
             goto send;
@@ -1419,7 +1424,7 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 				}
 			}
 
-			// oppure sovrascrivilo
+			// oppure fai la write
 			else {
 				if (writeFileInQueue(queue, filepath, content, size, fd_c) == -1) {
 					perror("writeFileInQueue");

@@ -1,3 +1,8 @@
+#define CMDSIZE 256
+#define BUFSIZE 10000 // 10KB
+#define O_CREATE 1
+#define O_LOCK 2
+
 /**
  * Viene aperta una connessione AF_UNIX al socket file sockname. Se il server non accetta immediatamente la
  * richiesta di connessione, la connessione da parte del client viene ripetuta dopo ‘msec’ millisecondi e fino allo

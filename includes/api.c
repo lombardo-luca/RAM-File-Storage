@@ -16,17 +16,18 @@
 
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
-#define CMDSIZE 256
-#define BUFSIZE 10000 // 10KB
 
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
 static char openedFile[256] = "";			// filepath del file attualmente aperto
+static int createdAndLocked = 0;			// se = 1, il client ha appena creato il file openedFile in modalita' locked
 static char writingDirectory[256] = ""; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
 static char readingDirectory[256] = "";		// cartella dove scrivere i file letti dal server
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
+	createdAndLocked = 0;
+
 	// controllo la validità dei parametri
 	if (!sockname || msec <= 0) {
 		errno = EINVAL;
@@ -75,6 +76,8 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 }
 
 int closeConnection(const char* sockname) {
+	createdAndLocked = 0;
+
 	// se il nome del socket non corrisponde a quello nella variabile globale, errore
 	if (!sockname || strcmp(socketName, sockname) != 0) {
 		errno = EINVAL;
@@ -95,6 +98,8 @@ int closeConnection(const char* sockname) {
 }
 
 int openFile(const char* pathname, int flags) {
+	createdAndLocked = 0;
+
 	// controllo la validità degli argomenti
 	if (!pathname || strlen(pathname) >= (CMDSIZE-10) || flags < 0 || flags > 3) {
 		errno = EINVAL;
@@ -186,10 +191,16 @@ int openFile(const char* pathname, int flags) {
 	// tengo traccia del file aperto
 	strncpy(openedFile, pathname, strlen(pathname)+1);
 
+	if (flags == 3) {
+		createdAndLocked = 1;
+	}
+
 	return 0;
 }
 
 int readFile(const char* pathname, void** buf, size_t* size) {
+	createdAndLocked = 0;
+
 	// controllo la validita' dell'argomento
 	if (!pathname) {
 		errno = EINVAL;
@@ -262,6 +273,14 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 }
 
 int writeFile(const char* pathname, const char* dirname) {
+	// controlla se la precedente operazione e' stata una openFile(O_CREATE | O_LOCK) terminata con successo.
+	if ((strcmp(openedFile, pathname) != 0) || !createdAndLocked) {
+		errno = EPERM;
+		return -1;
+	}
+
+	createdAndLocked = 0;
+
 	// controllo la validita' degli argomenti
 	if (!pathname || strlen(pathname) >= BUFSIZE) {
 		errno = EINVAL;
@@ -271,12 +290,6 @@ int writeFile(const char* pathname, const char* dirname) {
 	// controllo che il client sia effettivamente connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
-		return -1;
-	}
-
-	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = EPERM;
 		return -1;
 	}
 
@@ -412,6 +425,8 @@ int writeFile(const char* pathname, const char* dirname) {
 }
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
+	createdAndLocked = 0;
+
 	// controllo la validità degli argomenti
 	if (!pathname || !buf || strlen(pathname) >= BUFSIZE) {
 		errno = EINVAL;
@@ -435,7 +450,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	// controllo che la dimensione del buffer non sia piu' grande di BUFSIZE
 	if (size >= BUFSIZE) {
 		if (print) {
-			printf("\nLa dimensione del file supera il limite (%d B). Solo i primi %d B saranno inviati.\n", BUFSIZE, BUFSIZE);
+			printf("\nLa dimensione del bufffer supera il limite (%d B). Solo i primi %d B saranno scritti.\n", BUFSIZE, BUFSIZE);
 		}
 
 		size2 = BUFSIZE;
@@ -532,6 +547,8 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 }
 
 int closeFile(const char* pathname) {
+	createdAndLocked = 0;
+
 	// controllo la validita' dell'argomento
 	if (!pathname) {
 		errno = EINVAL;

@@ -18,8 +18,6 @@
 
 #define UNIX_PATH_MAX 108 
 //#define SOCKNAME "./mysock"
-#define CMDSIZE 256
-#define BUFSIZE 10000 	// 10KB
 
 typedef struct struct_cmd {		
 	char cmd;					// nome del comando
@@ -746,10 +744,12 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 			fflush(stdout);
 		}
 
-		// apro il file
-		if (openFile(token, 1) == -1) {
-			// se il file esiste gia', rifai la openFile senza O_CREATE
+		// creo il file in modalita' locked
+		if (openFile(token, O_CREATE | O_LOCK) == -1) {
+			/*
 			if (strcmp(strerror(errno), "File exists") == 0) {
+				exists = 1;
+
 				if (openFile(token, 0) == -1) {
 					ok = 0;
 				}
@@ -758,17 +758,22 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 			else {
 				ok = 0;
 			}
+			*/
+
+			ok = 0;
 		}
 
-		// se il file e' stato aperto con successo...
-		if (ok) {
+		// se il file e' stato creato con successo...
+		else {
 			opened = 1;
 		}
 		
 		// scrivo il contenuto del file sul server
-		if (ok && writeFile(token, Directory) == -1) {
+		if (opened && writeFile(token, Directory) == -1) {
 			ok = 0;
 		}
+
+		// TO-DO fare la unlock sul file
 
 		// chiudo il file
 		if (opened && closeFile(token) == -1) {
