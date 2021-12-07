@@ -43,6 +43,7 @@ int cmd_w(char *dirname, char *Directory, int print);
 int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag);
 int cmd_W(const char *filelist, char *Directory, int print);
 int cmd_r(const char *filelist, char *directory, int print);
+int cmd_R(const char *numStr, char *directory, int print);
 
 void testOpenFile() {
 	struct timespec ts;
@@ -214,19 +215,20 @@ int main(int argc, char* argv[]) {
 	int f = 0, h = 0, p = 0;	// variabili per tenere traccia dei comandi che possono essere utilizzati solo una volta
 	char args[256];
 
+	//opterr = 0;
+
 	// creo la lista di comandi
 	cmdT *cmdList = NULL;
 	cmdList = calloc(1, sizeof(cmdT));
 	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, "hpf:t:w:W:D:r:d:")) != -1) {
+	while ((opt = getopt(argc, argv, ":hpf:t:w:W:D:r:R:d:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
 				if (h) {
-					printf("Il comando -h puo' essere usato solo una volta.\n");
-					destroyCmdList(cmdList);
-					return 1;
+					fprintf(stderr, "Il comando -h puo' essere usato solo una volta.\n");
+					goto cleanup;
 				}
 
 				else {
@@ -238,12 +240,16 @@ int main(int argc, char* argv[]) {
 			// specifica il nome del socket AF_UNIX a cui connettersi
 			case 'f':
 				if (f) {
-					printf("Il comando -f puo' essere usato solo una volta.\n");
-					destroyCmdList(cmdList);
-					return 1;
+					fprintf(stderr, "Il comando -f puo' essere usato solo una volta.\n");
+					goto cleanup;
 				}
 
 				else {
+					if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
+						fprintf(stderr, "Il comando -f necessita di un argomento.\n");
+						goto cleanup;
+					}
+
 					memset(args, '\0', 256);
 					strncpy(args, optarg, strlen(optarg)+1);
 					addCmd(&cmdList, opt, optarg);
@@ -254,9 +260,8 @@ int main(int argc, char* argv[]) {
 			// abilita le stampe su stdout per ogni operazione
 			case 'p':
 				if (p) {
-					printf("Il comando -p puo' essere usato solo una volta.\n");
-					destroyCmdList(cmdList);
-					return 1;
+					fprintf(stderr, "Il comando -p puo' essere usato solo una volta.\n");
+					goto cleanup;
 				}
 
 				else {
@@ -269,8 +274,13 @@ int main(int argc, char* argv[]) {
 				// alloca la memoria per la variabile globale che contiene le informazioni necessarie per cmd_w
 				if ((wT = (cmd_w_T*) calloc(1, sizeof(cmd_w_T))) == NULL) {
 					perror("calloc wT");
-					destroyCmdList(cmdList);
-					return 1;
+					goto cleanup;
+				}
+
+				if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
+					fprintf(stderr, "Il comando -w necessita di un argomento.\n");
+					optind -= 1;
+					goto cleanup;
 				}
 
 				memset(args, '\0', 256);
@@ -283,13 +293,46 @@ int main(int argc, char* argv[]) {
 			case 'r': 	// lista di nomi di file da leggere dal server, separati da virgole
  			case 'D':	// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
  			case 'd':	// cartella dove vengono scritti i file letti dal server
+ 				if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
+					fprintf(stderr, "Il comando -%c necessita di un argomento.\n", optopt);
+					goto cleanup;
+				}
+
 				memset(args, '\0', 256);
 				strncpy(args, optarg, strlen(optarg)+1);
 				addCmd(&cmdList, opt, args);
 				break;
 
+			case 'R':	// legge 'n' file qualsiasi attualmente memorizzati nel server
+			 	if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
+					optind -= 1;
+					addCmd(&cmdList, opt, "");
+				}
+
+				else {
+					memset(args, '\0', 256);
+					strncpy(args, optarg, strlen(optarg)+1);
+					addCmd(&cmdList, opt, args);
+				}
+
+				break;
+
+			// comando senza argomento
+			case ':':
+				switch(optopt) {
+					case 'R':
+						addCmd(&cmdList, optopt, "");
+						break;
+					default:
+						fprintf(stderr, "Il comando -%c necessita di un argomento.\n", optopt);
+	            		goto cleanup;
+				}
+				break;
+
 			// argomento non riconosciuto
 			case '?': default:
+					fprintf(stderr, "Comando non riconosciuto: -%c.\n", optopt);
+					goto cleanup;
 				break;
 		}
 	}
@@ -301,28 +344,32 @@ int main(int argc, char* argv[]) {
 
 	if (execute(cmdList, p) == -1) {
 		perror("execute");
-		if (wT) {
-			free(wT);
-		}
-		return 1;
+		
+		goto cleanup;
 	}
 
 	//testAppendToFile();
 	//testOpenFile();
 	//testWriteFile();
 
-	if (destroyCmdList(cmdList) == -1) {
-		perror("destroyCmdList");
+	cleanup:
+		if (cmdList) {
+			if (destroyCmdList(cmdList) == -1) {
+				perror("destroyCmdList");
+
+				if (wT) {
+					free(wT);
+				}
+
+				return 1;
+			}
+		}
+		
 		if (wT) {
 			free(wT);
 		}
-		return 1;
-	}
-	
-	if (wT) {
-		free(wT);
-	}
-	return 0;
+
+		return 0;
 }
 
 // aggiunge un comando in fondo alla lista
@@ -526,9 +573,9 @@ int execute(cmdT *cmdList, int print) {
 
 				break;
 
-			// leggi dal server una lista di file da leggere dal server, separati da virgole
+			// leggi dal server una lista di file, separati da virgole
 			case 'r':
-				memset(Dir, '\0', 256);
+				memset(dir, '\0', 256);
 				r = 1;
 				w = 0;
 
@@ -550,6 +597,33 @@ int execute(cmdT *cmdList, int print) {
 				}
 
 				cmd_r(temp->arg, dir, print);
+
+				break;
+
+			// leggi 'n' file qualsiasi attualmente memorizzati nel server
+			case 'R':
+				memset(dir, '\0', 256);
+				r = 1;
+				w = 0;
+
+				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
+				if (temp->next) {
+					if ((temp->next)->cmd == 'd') {
+						strncpy(dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
+
+						if (setDirectory(dir, 0) == -1) {
+							if (print) {
+								perror("-d");
+							}
+						}
+
+						if (print) {
+							printf("\nd - Cartella per le letture del comando -R: %s\tEsito: ok\n", dir);
+						}
+					}
+				}
+
+				cmd_R(temp->arg, dir, print);
 
 				break;
 
@@ -815,6 +889,7 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 	}
 }
 
+// leggi dal server una lista di file, separati da virgole
 int cmd_r(const char *filelist, char *directory, int print) {
 	if (!filelist || !directory) {
 		errno = EINVAL;
@@ -887,12 +962,22 @@ int cmd_r(const char *filelist, char *directory, int print) {
 				printf("errore");
 				perror("-r");
 			}
-
-			printf("\n");
-			fflush(stdout);
 		}
 
+		printf("\n");
+		fflush(stdout);
+
 		token = strtok_r(NULL, ",", &save);
+	}
+
+	if (print && strcmp(directory, "") != 0) {
+		printf("\nI file letti sono stati scritti nella cartella %s.\n.", directory);
+		fflush(stdout);
+	}
+
+	else if (print) {
+		printf("\nI file letti sono stati buttati via.\n");
+		fflush(stdout);
 	}
 
 	if (ok) {
@@ -902,4 +987,63 @@ int cmd_r(const char *filelist, char *directory, int print) {
 	else {
 		return -1;
 	}
+}
+
+// leggi 'n' file qualsiasi attualmente memorizzati nel server
+int cmd_R(const char *numStr, char *directory, int print) {
+	if (!directory) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	int n = 0;
+
+	// parso l'argomento
+	char *token = NULL, *save = NULL;
+	char tokenList[256] = "";
+	strncpy(tokenList, numStr, strlen(numStr)+1);
+	token = strtok_r(tokenList, ",", &save);
+
+	if (print) {
+		printf("\nR - Leggo i seguenti file dal server:\n");
+		fflush(stdout);
+	}
+
+	// controllo se nel comando e' stato specificato il numero massimo di file da leggere
+	if (token) {
+		if (strlen(token) > 2) {
+			if (token[0] == 'n' && token[1] == '=') {
+				char *number = token+2;
+				int valid = 1;
+
+				for (int i = 0; i < strlen(number); i++) {
+					if (!isdigit(number[i])) {
+						valid = 0;
+						break;
+					}
+				}
+
+				if (valid) {
+					int num = (int) strtol(number, NULL, 0);
+					if (num > 0) {
+						n = num;
+					}
+				}
+			}
+		}
+	}
+
+	if (readNFiles(n, directory) == -1) {
+		return -1;
+	}
+
+	if (print && strcmp(directory, "") != 0) {
+		printf("I file letti sono stati scritti nella cartella %s.\n", directory);
+	}
+
+	else if (print) {
+		printf("I file letti sono stati buttati via.\n");
+	}
+
+	return 0;
 }

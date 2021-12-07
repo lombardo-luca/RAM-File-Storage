@@ -520,7 +520,6 @@ int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, 
     return 0;
 }
 
-
 int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client) {
     // controllo la validità degli argomenti
     if (!queue || !filepath || !content) {

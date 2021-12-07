@@ -126,7 +126,7 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, pathname, strlen(pathname) + 1);
 	strncat(cmd, ":", 2);
 	char flagStr[2];
-	snprintf(flagStr, 2, "%d", flags);
+	snprintf(flagStr, sizeof(flags)+1, "%d", flags);
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
@@ -174,15 +174,23 @@ int openFile(const char* pathname, int flags) {
 
 	// se il server ha dovuto espellere un file per fare spazio, lo ricevo
 	else if (strcmp(res, "es") == 0) {
-		if (print && (strcmp(writingDirectory, "") != 0)) {
+		if (print) {
 			printf("\n\tIl server ha espulso il seguente file:\n");
 			fflush(stdout);
 		}
 
 		if (receiveFile(writingDirectory, NULL, NULL) == -1) {
-			perror("receiveFIle");
+			perror("receiveFile");
 			free(buf);
 			return -1;
+		}
+
+		if (print && strcmp(writingDirectory, "") != 0) {
+			printf("\tIl file espulso e' stato scritto nella cartella %s.\n", writingDirectory);
+		}
+
+		else if (print) {
+			printf("\tIl file espulso e' stato buttato via.\n");
 		}
 	}
 
@@ -270,6 +278,80 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 
 	free(bufRes);
 	return 0;
+}
+
+int readNFiles(int N, const char* dirname) {
+	createdAndLocked = 0;
+
+	// controllo la validita' dell'argomento
+	if (!dirname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo che il client sia effettivamente connesso al server
+	if (strcmp(socketName, "") == 0) {
+		errno = ENOTCONN;
+		return -1;
+	}
+
+	void *bufRes = malloc(BUFSIZE);
+	char cmd[CMDSIZE] = "";
+	int actualN = N;
+
+	// preparo il comando da inviare al server in formato readNFiles:N
+	memset(cmd, '\0', CMDSIZE);
+	strncpy(cmd, "readNFiles:", 13);
+	char NStr[2];
+	snprintf(NStr, sizeof(N)+1, "%d", N);
+	strncat(cmd, NStr, strlen(NStr) + 1);
+
+	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+		free(bufRes);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	// ricevo la risposta dal server
+	int r = readn(fd_skt, bufRes, 3);
+	if (r == -1 || r == 0) {
+		free(bufRes);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, bufRes, 3);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(bufRes, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, bufRes, sizeof(int))) == -1) {
+			free(bufRes);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, bufRes, sizeof(int));
+		free(bufRes);
+		return -1;
+	}
+
+	else {
+		// ricevi i file dal server
+		if ((actualN = receiveNFiles(dirname)) == -1) {
+			free(bufRes);
+			return -1;
+		}
+	}
+
+	free(bufRes);
+
+	// restituisci il numero di file letti
+	return actualN;
 }
 
 int writeFile(const char* pathname, const char* dirname) {
@@ -396,18 +478,23 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	// se il server ha dovuto espellere dei file per fare spazio, li ricevo tutti
 	else if (strcmp(res, "es") == 0) {
-		if (print && dirname) {
-			if (strcmp(dirname, "") != 0) {
-				printf("dirname = %s\n", dirname);
-				printf("\n\tIl server ha espulso i seguenti file:\n");
-				fflush(stdout);
-			}
+		if (print) {
+			printf("\n\tIl server ha espulso i seguenti file:\n");
+			fflush(stdout);
 		}
 
 		if (receiveNFiles(dirname) == -1) {
 			free(buf);
 			free(content);
 			return -1;
+		}
+
+		if (print && dirname && strcmp(dirname, "") != 0) {
+			printf("\tI file espulsi sono stati scritti nella cartella %s.\n", dirname);
+		}
+
+		else if (print) {
+			printf("\tI file espulsi sono stati buttati via.\n");
 		}
 	}
 
@@ -522,11 +609,9 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
 	// se il server ha dovuto espellere dei file per fare spazio, li ricevo tutti
 	else if (strcmp(res, "es") == 0) {
-		if (print && dirname) {
-			if (strcmp(dirname, "") != 0) {
-				printf("\nIl server ha espulso i seguenti file:\n");
-				fflush(stdout);
-			}
+		if (print) {
+			printf("\nIl server ha espulso i seguenti file:\n");
+			fflush(stdout);
 		}
 
 		if (receiveNFiles(dirname) == -1) {
@@ -693,7 +778,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 	//printf("Ho ricevuto il contenuto!\n");
 
-	if (print && strcmp(dir, "") != 0) {
+	if (print) {
 		printf("\t%-20s", filepath);
 		printf("\tDimensione: %ld B\n", size);
 		fflush(stdout);
@@ -763,6 +848,7 @@ int receiveNFiles(const char *dirname) {
 	int fine = 0;
 	char dir[256] = "";
 	char *filename = malloc(256);
+	int filesCount = 0;
 
 	// se e' stata passata una directory, usala per scriverci dentro i file ricevuti dal serevr
 	if (dirname && strcmp(dirname, "") != 0) {
@@ -792,7 +878,11 @@ int receiveNFiles(const char *dirname) {
 			break;
 		}
 
-		if (print && strcmp(dir, "") != 0) {
+		else {
+			filesCount++;
+		}
+
+		if (print) {
 			printf("\t%-20s", filepath);
 		}
 
@@ -806,7 +896,7 @@ int receiveNFiles(const char *dirname) {
 
 		memcpy(&size, buf, sizeof(size_t));
 
-		if (print && strcmp(dir, "") != 0) {
+		if (print) {
 			printf("\tDimensione: %ld B\n", size);
 			fflush(stdout);
 		}
@@ -879,7 +969,7 @@ int receiveNFiles(const char *dirname) {
 	free(filename);
 	free(buf);
 
-	return 0;
+	return filesCount;
 }
 
 // imposta la cartella sulla quale scrivere i file letti dal server o espulsi in seguito a capacity misses

@@ -49,6 +49,15 @@ int openFile(const char* pathname, int flags);
 int readFile(const char* pathname, void** buf, size_t* size);
 
 /**
+ * Richiede al server la lettura di ‘N’ files qualsiasi da memorizzare nella directory ‘dirname’ lato client. 
+ * Se il server ha meno di ‘N’ file disponibili, li invia tutti. 
+ * Se N <= 0 la richiesta al server è quella di leggere tutti i file memorizzati al suo interno. 
+ * Ritorna un valore maggiore o uguale a 0 in caso di successo (cioè ritorna il n. di file effettivamente letti), 
+ * -1 in caso di fallimento, errno viene settato opportunamente.
+ */
+int readNFiles(int N, const char* dirname);
+
+/**
  * Scrive tutto il file puntato da pathname nel file server. Ritorna successo solo se la precedente operazione,
  * terminata con successo, è stata openFile(pathname, O_CREATE| O_LOCK). Se ‘dirname’ è diverso da NULL, 
  * il file eventualmente spedito dal server perche' espulso dalla cache per far posto al file "pathname" dovra' essere

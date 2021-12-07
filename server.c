@@ -48,6 +48,7 @@ void printStats(logT *logFileT);
 int parser(char *command, queueT *queue, long fd_c, logT *logFileT);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
 void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
+void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT);
 void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logFileT, int append);
 void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
 
@@ -927,6 +928,12 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 		readFile(token2, queue, fd_c, logFileT);
 	}
 
+	else if (token && strcmp(token, "readNFiles") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+
+		readNFiles(token2, queue, fd_c, logFileT);
+	}
+
 	else if (token && strcmp(token, "writeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
 		token3 = strtok_r(NULL, ":", &save);
@@ -1239,6 +1246,115 @@ void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT) {
 		if (res) {
 			free(res);
 		}
+}
+
+// invia al client 'n' file qualsiasi attualmente memorizzati nello storage
+void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
+	void *res = malloc(BUFSIZE);
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	void *buf = NULL;
+	int n = strtol(numStr, NULL, 0);
+
+	memcpy(res, ok, 3);
+
+	// controllo la validita' degli argomenti
+	if (!numStr || !queue || !logFileT) {
+		errno = EINVAL;
+		memcpy(res, er, 3);
+	}
+	
+	printf("readNFiles: mando risposta al client\n");
+	fflush(stdout);
+	buf = malloc(BUFSIZE);
+	memcpy(buf, res, 3);
+
+	// invio risposta al client
+	if (writen(fd_c, buf, 3) == -1) {
+		perror("writen");
+	}
+
+	// se c'è stato un errore, invio errno al client
+	else if(strcmp(res, "er") == 0) {			
+		if (writen(fd_c, &errno, sizeof(int)) == -1) {
+			perror("writen");
+		}
+
+		else {
+			// scrivo sul logFile
+			char readNFilesStr[512] = "Il client ";
+			char readNFilesFdStr[32];
+			char readNFilesNStr[32];
+			snprintf(readNFilesFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			strncat(readNFilesStr, readNFilesFdStr, strlen(readNFilesFdStr)+1);
+			strncat(readNFilesStr, " ha richiesto una readNFiles con n = ", 64);
+			snprintf(readNFilesNStr, sizeof(n)+1, "%d", n);
+			strncat(readNFilesStr, readNFilesNStr, strlen(readNFilesNStr) + 1);
+			strncat(readNFilesStr, ", terminata con errore.\n", 48);
+			if (writeLog(logFileT, readNFilesStr) == -1) {
+				perror("writeLog");
+			}	
+		}
+	}
+
+	else {
+		// se n = 0, invia tutti i file memorizzati nel server
+		int oldN = n;
+		if (n == 0) {
+			n = getLen(queue);
+		}
+
+		int i = 0;
+		// invia i file al client
+		while (i < n && i < getLen(queue)) {
+			fileT *f = dequeue(queue);
+
+			if (f == NULL) {
+				break;
+			}
+
+			if (sendFile(f, fd_c, logFileT) == -1) {
+				perror("sendFile");
+				goto cleanup;
+			}
+
+			if (enqueue(queue, f) == -1) {
+				perror("enqueue");
+				goto cleanup;
+			}
+
+			i++;
+		}
+		
+		// avverto il client che ho finito di mandare file
+		char fine[6] = ".FINE";
+		printf("invio %s\n", fine);
+		memset(buf, 0, BUFSIZE);
+		memcpy(buf, fine, 6);
+
+		if (writen(fd_c, buf, BUFSIZE) == -1) {
+			perror("writen");
+			goto cleanup;
+		}
+
+		// scrivo sul logFile
+		char readNFilesStr[512] = "Il client ";
+		char readNFilesFdStr[32];
+		char readNFilesNStr[32];
+		snprintf(readNFilesFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+		strncat(readNFilesStr, readNFilesFdStr, strlen(readNFilesFdStr)+1);
+		strncat(readNFilesStr, " ha richiesto una readNFiles con n = ", 64);
+		snprintf(readNFilesNStr, sizeof(n)+1, "%d", oldN);
+		strncat(readNFilesStr, readNFilesNStr, strlen(readNFilesNStr) + 1);
+		strncat(readNFilesStr, ", terminata con successo.\n", 48);
+		if (writeLog(logFileT, readNFilesStr) == -1) {
+			perror("writeLog");
+		}	
+	}
+
+	cleanup:
+		free(buf);
+		free(res);
 }
 
 // sovrascrivi o fai l'append su un file gia' presente nello storage
