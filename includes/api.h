@@ -1,5 +1,6 @@
 #define CMDSIZE 256
 #define BUFSIZE 10000 // 10KB
+#define MAX_OPEN_FILES 2
 #define O_CREATE 1
 #define O_LOCK 2
 
@@ -75,6 +76,23 @@ int writeFile(const char* pathname, const char* dirname);
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname);
 
 /**
+ * In caso di successo setta il flag O_LOCK al file. Se il file era stato aperto/creato con il flag O_LOCK 
+ * e la richiesta proviene dallo stesso processo, oppure se il file non ha il flag O_LOCK settato, 
+ * l’operazione termina immediatamente con successo, altrimenti l’operazione non viene completata 
+ * fino a quando il flag O_LOCK non viene resettato dal detentore della lock. 
+ * L’ordine di acquisizione della lock sul file non è specificato. 
+ * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
+ */
+int lockFile(const char* pathname);
+
+/**
+ * Resetta il flag O_LOCK sul file ‘pathname’. L’operazione ha successo solo se l’owner della lock 
+ * è il processo che  ha richiesto l’operazione, altrimenti l’operazione termina con errore. 
+ * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
+ */
+int unlockFile(const char* pathname);
+
+/**
  * Richiesta di chiusura del file puntato da "pathname". Eventuali operazioni sul file dopo la closeFile falliscono.
  * Ritorna 0 in caso di successo, -1 in caso di fallimento, errno viene settato opportunamente.
  * Quando un file viene chiuso, la mutua esclusione viene rilasciata automaticamente.
@@ -84,5 +102,10 @@ int closeFile(const char *pathname);
 // Funzioni ausiliarie
 int receiveFile(const char *dirname, void **bufA, size_t *sizeA);
 int receiveNFiles(const char *dirname);
+int lockFile_aux(const char *pathname);
+int addOpenFile(const char *pathname);
+int isOpen(const char *pathname);
+int removeOpenFile(const char *pathname);
+int closeEveryFile();
 void printInfo(int p);
 int setDirectory(char* Dir, int rw);

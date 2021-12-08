@@ -38,6 +38,8 @@ typedef struct struct_thread {
 	queueT *queue;
 	logT *logFileT;
 	threadpool_t *pool;
+	pthread_mutex_t *lock;
+	pthread_cond_t *lockCond;
 } threadT;
 
 static void serverThread(void *par);
@@ -46,12 +48,14 @@ int update(fd_set set, int fdmax);
 int writeLog(logT *logFileT, char *logString);
 int updateStats(logT *logFileT, queueT *queue, int miss);
 void printStats(logT *logFileT);
-int parser(char *command, queueT *queue, long fd_c, logT *logFileT);
+int parser(char *command, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
 void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
 void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT);
 void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logFileT, int append);
-void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
+void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond);
+void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond);
+void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond);
 
 // funzioni ausiliarie
 int sendFile(fileT *f, long fd_c, logT *logFileT);
@@ -136,7 +140,8 @@ int main(int argc, char *argv[]) {
 	int sigPipe[2], requestPipe[2];
 	FILE *configFile;						// file di configurazione per il server
 	FILE *logFile;							// file di log
-	//char logString[LOGLINESIZE];			// stringa che contiene il singolo messaggio da scrivere sul logfile
+	pthread_mutex_t lock;					// lock per le funzioni lockFile e unlockFile
+	pthread_cond_t lockCond;				// condition per le funzioni lockFile e unlockFile
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
 	sig_atomic_t numberOfConnections = 0;		// numero dei client attualmente connessi
 	sig_atomic_t stopIncomingConnections = 0;	// se = 1, non accetta più nuove connessioni dai client
@@ -318,6 +323,17 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
+	// inizializzo la lock e la condition per le funzioni lockFile e unlockFile
+	if (pthread_mutex_init(&lock, NULL) != 0) {
+        perror("pthread_mutex_init lock");
+        return -1;
+    }
+
+    if (pthread_cond_init(&lockCond, NULL) != 0) {
+		perror("pthread_cond_init lockCond");
+		return -1;
+    }
+
 	strncpy(sa.sun_path, sockName, UNIX_PATH_MAX);
 	sa.sun_family = AF_UNIX;
 
@@ -434,14 +450,17 @@ int main(int argc, char *argv[]) {
 							}
 
 							// creo la struct da passare come argomento al thread worker
-							threadT *t = malloc(sizeof(threadT));
-							t->args = malloc(3*sizeof(long));
+							threadT *t = calloc(1, sizeof(threadT));
+							t->args = calloc(1, 3*sizeof(long));
 							t->args[0] = fd_c;
 			    			t->args[1] = (long) &quit;
 			    			t->args[2] = (long) requestPipe[1];
 			    			t->queue = queue;
 			    			t->logFileT = logFileT;
 			    			t->pool = pool;
+			    			t->lock = &lock;
+			    			t->lockCond = &lockCond;
+
 							int r = addToThreadPool(pool, serverThread, (void*) t);
 
 							// task aggiunto alla pool con successo
@@ -564,14 +583,17 @@ int main(int argc, char *argv[]) {
 						//fd_max = update(set, fd_max);
 
 						// creo la struct da passare come argomento al thread worker
-						threadT *t = malloc(sizeof(threadT));
-						t->args = malloc(3*sizeof(long));
+						threadT *t = calloc(1, sizeof(threadT));
+						t->args = calloc(1, 3*sizeof(long));
 						t->args[0] = fd;
 			    		t->args[1] = (long) &quit;
 			    		t->args[2] = (long) requestPipe[1];
 			    		t->queue = queue;
 			    		t->logFileT = logFileT;
 			    		t->pool = pool;
+			    		t->lock = &lock;
+			    		t->lockCond = &lockCond;
+
 						int r = addToThreadPool(pool, serverThread, (void*) t);
 
 						// task aggiunto alla pool con successo
@@ -660,6 +682,8 @@ static void serverThread(void *par) {
 	queueT *queue = t->queue;
 	logT *logFileT = t->logFileT;
 	threadpool_t *pool = t->pool;
+	pthread_mutex_t *lock = t->lock;
+	pthread_cond_t *lockCond = t->lockCond;
 	sigset_t sigset;
 	fd_set set, tmpset;	
 	pthread_t tid = pthread_self();		// identificatore del thread worker
@@ -751,7 +775,7 @@ static void serverThread(void *par) {
 	printf("SERVER THREAD: ho ricevuto %s! dal client %ld\n", buf, fd_c);
 	fflush(stdout);
 
-	if (parser(buf, queue, fd_c, logFileT) == -1) {
+	if (parser(buf, queue, fd_c, logFileT, lock, lockCond) == -1) {
 		printf("SERVER THREAD: errore parser.\n");
 		fflush(stdout);
 		goto cleanup;
@@ -915,7 +939,7 @@ void printStats(logT *logFileT) {
 }
 
 // effettua il parsing dei comandi
-int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
+int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond) {
 	if (!command || !queue || !logFileT) {
 		errno = EINVAL;
 		return -1;
@@ -963,9 +987,21 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT) {
 		writeFile(token2, sz, queue, fd_c, logFileT, 1);
 	}
 
+	else if (token && strcmp(token, "lockFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+
+		lockFile(token2, queue, fd_c, logFileT, lock, lockCond);
+	}
+
+	else if (token && strcmp(token, "unlockFile") == 0) {
+		token2 = strtok_r(NULL, ":", &save);
+
+		unlockFile(token2, queue, fd_c, logFileT, lock, lockCond);
+	}
+
 	else if (token && strcmp(token, "closeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
-		closeFile(token2, queue, fd_c, logFileT);
+		closeFile(token2, queue, fd_c, logFileT, lock, lockCond);
 	}
 
 	// comando non riconosciuto
@@ -1190,6 +1226,12 @@ void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT) {
 	// se il file non e' presente, errore
 	if (findF == NULL) {
 		errno = ENOENT;
+		memcpy(res, er, 3);
+	}
+
+	// se il file non e' stato precedentemente aperto, errore
+	else if (!findF->open) {
+		errno = EPERM;
 		memcpy(res, er, 3);
 	}
 
@@ -1639,8 +1681,234 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 		free(res);
 }
 
+// imposta un file nello storage in modalita' locked
+void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond) {
+	void *res = malloc(BUFSIZE);
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	void *buf = NULL;
+
+	memcpy(res, ok, 3);
+
+	// controllo la validita' degli argomenti
+	if (!filepath || !queue || !logFileT) {
+		errno = EINVAL;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// cerco nello storage il file da impostare in modalita' locked
+	fileT *findF = NULL;
+	findF = find(queue, filepath);
+
+	// se il file non e' presente, errore
+	if (findF == NULL) {
+		errno = ENOENT;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	if (pthread_mutex_lock(lock) != 0) {
+		perror("pthread_mutex_lock");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// prova a settare il flag O_LOCK sul file
+	while (openFileInQueue(queue, filepath, 1, fd_c) == -1) {
+		// se il file e' gia' stato lockato da un client diverso, attendi fino a che qualcuno non fa una unlockFile()
+		if (strcmp(strerror(errno), "Operation not permitted") == 0) {
+			if (pthread_cond_wait(lockCond, lock) != 0) {
+				perror("pthread_cond_wait");
+				memcpy(res, er, 3);
+				if (pthread_mutex_unlock(lock) != 0) {
+					perror("pthread_mutex_unlock");
+				}
+				goto send;
+			}
+		}
+
+		// altrimenti c'e' stato un errore diverso
+		else {
+			memcpy(res, er, 3);
+		}
+	}
+
+	if (pthread_mutex_unlock(lock) != 0) {
+		perror("pthread_mutex_unlock");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	send:
+		buf = malloc(BUFSIZE);
+		memcpy(buf, res, 3);
+
+		if (writen(fd_c, buf, 3) == -1) {
+			perror("writen");
+			goto cleanup;
+		}
+
+		// se c'e' stato un errore, invio errno al client
+		if (strcmp(res, "er") == 0) {			
+			if (writen(fd_c, &errno, sizeof(int)) == -1) {
+				perror("writen");
+				goto cleanup;
+			}
+
+			// scrivo sul logFile
+			char lockFileStr[512] = "Il client ";
+			char lockFileFdStr[32];
+			snprintf(lockFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			strncat(lockFileStr, lockFileFdStr, strlen(lockFileFdStr)+1);
+			strncat(lockFileStr, " ha richiesto una lockFile sul file: ", 64);
+			strncat(lockFileStr, filepath, strlen(filepath)+1);
+			strncat(lockFileStr, ", terminata con errore.\n", 32);
+			if (writeLog(logFileT, lockFileStr) == -1) {
+				perror("writeLog");
+			}	
+		}
+
+		else {
+			// scrivo sul logFile
+			char lockFileStr[512] = "Il client ";
+			char lockFileFdStr[32];
+			snprintf(lockFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			strncat(lockFileStr, lockFileFdStr, strlen(lockFileFdStr)+1);
+			strncat(lockFileStr, " ha richiesto una lockFile sul file: ", 64);
+			strncat(lockFileStr, filepath, strlen(filepath)+1);
+			strncat(lockFileStr, ", terminata con successo.\n", 32);
+			if (writeLog(logFileT, lockFileStr) == -1) {
+				perror("writeLog");
+			}
+		}
+
+	cleanup:
+		if (buf) {
+			free(buf);
+		}
+
+		if (findF) {
+			destroyFile(findF);
+		}
+
+		if (res) {
+			free(res);
+		}
+}
+
+// resetta il flag O_LOCK di un file nello storage
+void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond) {
+	void *res = malloc(BUFSIZE);
+	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
+	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	void *buf = NULL;
+
+	memcpy(res, ok, 3);
+
+	// controllo la validita' degli argomenti
+	if (!filepath || !queue || !logFileT) {
+		errno = EINVAL;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// cerco nello storage il file sul quale resettare il flag O_LOCK
+	fileT *findF = NULL;
+	findF = find(queue, filepath);
+
+	// se il file non e' presente, errore
+	if (findF == NULL) {
+		errno = ENOENT;
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	if (pthread_mutex_lock(lock) != 0) {
+		perror("pthread_mutex_lock");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// resetto il flag O_LOCK sul file
+	if (unlockFileInQueue(queue, filepath, fd_c) != 0) {
+		perror("unlockFileInQueue");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	// segnalo ai thread in attesa che e' stata effettuata una unlockFile
+	if (pthread_cond_signal(lockCond) != 0) {
+		perror("pthread_cond_signal");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	if (pthread_mutex_unlock(lock) != 0) {
+		perror("pthread_mutex_unlock");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
+	send:
+		buf = malloc(BUFSIZE);
+		memcpy(buf, res, 3);
+
+		if (writen(fd_c, buf, 3) == -1) {
+			perror("writen");
+			goto cleanup;
+		}
+
+		// se c'e' stato un errore, invio errno al client
+		if (strcmp(res, "er") == 0) {			
+			if (writen(fd_c, &errno, sizeof(int)) == -1) {
+				perror("writen");
+				goto cleanup;
+			}
+
+			// scrivo sul logFile
+			char unlockFileStr[512] = "Il client ";
+			char unlockFileFdStr[32];
+			snprintf(unlockFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			strncat(unlockFileStr, unlockFileFdStr, strlen(unlockFileFdStr)+1);
+			strncat(unlockFileStr, " ha richiesto una unlockFile sul file: ", 64);
+			strncat(unlockFileStr, filepath, strlen(filepath)+1);
+			strncat(unlockFileStr, ", terminata con errore.\n", 32);
+			if (writeLog(logFileT, unlockFileStr) == -1) {
+				perror("writeLog");
+			}	
+		}
+
+		else {
+			// scrivo sul logFile
+			char unlockFileStr[512] = "Il client ";
+			char unlockFileFdStr[32];
+			snprintf(unlockFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			strncat(unlockFileStr, unlockFileFdStr, strlen(unlockFileFdStr)+1);
+			strncat(unlockFileStr, " ha richiesto una unlockFile sul file: ", 64);
+			strncat(unlockFileStr, filepath, strlen(filepath)+1);
+			strncat(unlockFileStr, ", terminata con successo.\n", 32);
+			if (writeLog(logFileT, unlockFileStr) == -1) {
+				perror("writeLog");
+			}
+		}
+
+	cleanup:
+		if (buf) {
+			free(buf);
+		}
+
+		if (findF) {
+			destroyFile(findF);
+		}
+
+		if (res) {
+			free(res);
+		}
+}
+
 // chiudi un file nello storage
-void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT) {
+void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond) {
 	void *res = malloc(BUFSIZE);
 	int found = 0;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
@@ -1671,6 +1939,19 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT) {
 		if (closeFileInQueue(queue, filepath, fd_c) == -1) {
 			perror("closeFileInQueue");
 			memcpy(res, er, 3);
+		}
+
+		// segnalo ai thread in attesa che e' stata effettuata una closeFile
+		if (pthread_mutex_lock(lock) != 0) {
+			perror("pthread_mutex_lock");
+		}
+
+		if (pthread_cond_signal(lockCond) != 0) {
+			perror("pthread_cond_signal");
+		}
+
+		if (pthread_mutex_unlock(lock) != 0) {
+			perror("pthread_mutex_unlock");
 		}
 
 		destroyFile(findF);

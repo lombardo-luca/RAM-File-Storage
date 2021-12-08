@@ -96,6 +96,11 @@ int printQueue(queueT *queue);
 int lockFileInQueue(queueT *queue, char *filepath, int owner);
 
 /**
+ * 
+ */
+int unlockFileInQueue(queueT *queue, char *filepath, int owner);
+
+/**
  * Apre un fileT all'interno della coda. Fallisce se il file e' stato messo in modalita' locked da un client diverso.
  * \param queue -> puntatore alla coda che contiene il fileT
  * \param filepath -> path assoluto (identificatore) del fileT da aprire

@@ -19,6 +19,7 @@
 #define UNIX_PATH_MAX 108 
 //#define SOCKNAME "./mysock"
 
+// struttura dati della lista di comandi
 typedef struct struct_cmd {		
 	char cmd;					// nome del comando
 	char *arg;					// (eventuale) argomento del comando
@@ -32,8 +33,8 @@ typedef struct struct_cmd_w {
 	int currN;
 }	cmd_w_T;
 
-// variabile globale di appoggio per il comando -w
-static cmd_w_T *wT;
+static cmd_w_T *wT;								// variabile globale di appoggio per il comando -w
+static char globalSocket[UNIX_PATH_MAX] = "";	// variabile globale che contiene il nome del socket
 
 int addCmd(cmdT **cmdList, char cmd, char *arg);
 int execute(cmdT *cmdList, int print);
@@ -44,6 +45,9 @@ int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag);
 int cmd_W(const char *filelist, char *Directory, int print);
 int cmd_r(const char *filelist, char *directory, int print);
 int cmd_R(const char *numStr, char *directory, int print);
+int cmd_l(const char *filelist, int print);
+int cmd_u(const char *filelist, int print);
+void cleanup();
 
 void testOpenFile() {
 	struct timespec ts;
@@ -193,6 +197,8 @@ void stressTest(int startNum) {
 }
 
 int main(int argc, char* argv[]) {
+	atexit(cleanup);
+
 	struct sigaction siga;
 
 	printf("File Storage Client avviato.\n");
@@ -222,7 +228,7 @@ int main(int argc, char* argv[]) {
 	cmdList = calloc(1, sizeof(cmdT));
 	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, ":hpf:t:w:W:D:r:R:d:")) != -1) {
+	while ((opt = getopt(argc, argv, ":hpf:t:w:W:D:r:R:d:l:u:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
@@ -293,6 +299,8 @@ int main(int argc, char* argv[]) {
 			case 'r': 	// lista di nomi di file da leggere dal server, separati da virgole
  			case 'D':	// cartella dove vengono scritti i file che il server rimuove a seguito di capacity misses in scrittura
  			case 'd':	// cartella dove vengono scritti i file letti dal server
+ 			case 'l':	// lista di nomi di file sui quali acquisire la mutua esclusione
+ 			case 'u':	// lista di nomi di file sui quali rilasciare la mutua esclusione
  				if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
 					fprintf(stderr, "Il comando -%c necessita di un argomento.\n", optopt);
 					goto cleanup;
@@ -403,7 +411,7 @@ int addCmd(cmdT **cmdList, char cmd, char *arg) {
 
 	// se la lista era vuota, il comando aggiunto diventa il primo della lista
 	if (*cmdList == NULL) {
-		*cmdList = tail;
+		*cmdList = new;
 	}
 
 	// altrimenti, scorro tutta la lista e aggiungo il comando come ultimo elemento
@@ -429,7 +437,7 @@ int execute(cmdT *cmdList, int print) {
 	int ok = 1;			// esito del comando
 	cmdT *temp = NULL;
 	temp = cmdList;
-	char sock[256] = "";	// socket che viene impostato con il comando -f
+	//char sock[256] = "";	// socket che viene impostato con il comando -f
 	int w = 0;				// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
 	int r = 0;				// se = 1, l'ultimo comando letto e' una lettura (-r o -R)
 	char Dir[256] = "";		// cartella in cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
@@ -455,7 +463,7 @@ int execute(cmdT *cmdList, int print) {
 			case 'f':
 				w = 0;
 				r = 0;
-				strncpy(sock, temp->arg, strlen(temp->arg)+1);
+				strncpy(globalSocket, temp->arg, strlen(temp->arg)+1);
 
 				if (cmd_f(temp->arg) != 0) {
 					if (print) {
@@ -470,7 +478,7 @@ int execute(cmdT *cmdList, int print) {
 
 				// controllo se devo stampare su stdout
 				if (print) {
-					printf("\nf - Connessione al socket: %s\t", sock);
+					printf("\nf - Connessione al socket: %s\t", globalSocket);
 
 					if (ok) {
 						printf("Esito: ok\n");
@@ -627,6 +635,7 @@ int execute(cmdT *cmdList, int print) {
 
 				break;
 
+			// imposta la cartella dove scrivere i file letti dal server
 			case 'd':
 				// se il comando precedentemente non era una scrittura (-w o -W), errore
 				if (!r) {
@@ -637,19 +646,39 @@ int execute(cmdT *cmdList, int print) {
 				r = 0;
 
 				break;
+
+			// acquisisci la mutua esclusione su uno o piu' file
+			case 'l':
+				w = 0;
+				r = 0;
+
+				cmd_l(temp->arg, print);
+				break;
+
+			// rilascia la mutua esclusione su uno o piu' file
+			case 'u':
+				w = 0;
+				r = 0;
+
+				cmd_u(temp->arg, print);
+				break;
 		}
 
 		temp = temp->next;
 
 		// attendo prima di mandare la prossima richiesta al server
-		nanosleep(&tim1, &tim2);
+		if (temp) {
+			nanosleep(&tim1, &tim2);
+		}
 	}
 
 	printf("\n");
 
-	if (strcmp(sock, "") != 0) {
-		closeConnection(sock);
+	if (strcmp(globalSocket, "") != 0) {
+		closeConnection(globalSocket);
+		strncpy(globalSocket, "", 2);
 	}
+
 	return 0;
 }
 
@@ -1046,4 +1075,106 @@ int cmd_R(const char *numStr, char *directory, int print) {
 	}
 
 	return 0;
+}
+
+// acquisisci la mutua esclusione su uno o piu' file
+int cmd_l(const char *filelist, int print) {
+	// controllo la validita' dell'argomento
+	if (!filelist) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// parso la lista di file da leggere
+	char *token = NULL, *save = NULL;
+	char tokenList[256] = "";
+	strncpy(tokenList, filelist, strlen(filelist)+1);
+	token = strtok_r(tokenList, ",", &save);
+
+	if (print) {
+		printf("\nl - Acquisisco la mutua esclusione sui seguenti file:\n");
+		fflush(stdout);
+	}
+
+	// per ogni file nella lista...
+	while (token != NULL) {
+		if (print != 0) {
+			printf("\n%-20s", token); 
+			fflush(stdout);
+		}
+
+		if (lockFile(token) == -1) {
+			if (print) {
+				printf("Esito: errore");
+				perror("-l"); 
+			}
+		}
+
+		else {
+			if (print) {
+				printf("Esito: ok"); 
+			}
+		}
+
+		printf("\n");
+		fflush(stdout);
+
+		token = strtok_r(NULL, ",", &save);
+	}
+
+	return 0;
+}
+
+// rilascia la mutua esclusione su uno o piu' file
+int cmd_u(const char *filelist, int print) {
+	// controllo la validita' dell'argomento
+	if (!filelist) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// parso la lista di file da leggere
+	char *token = NULL, *save = NULL;
+	char tokenList[256] = "";
+	strncpy(tokenList, filelist, strlen(filelist)+1);
+	token = strtok_r(tokenList, ",", &save);
+
+	if (print) {
+		printf("\nu - Rilascio la mutua esclusione sui seguenti file:\n");
+		fflush(stdout);
+	}
+
+	// per ogni file nella lista...
+	while (token != NULL) {
+		if (print != 0) {
+			printf("\n%-20s", token); 
+			fflush(stdout);
+		}
+
+		if (unlockFile(token) == -1) {
+			if (print) {
+				printf("Esito: errore");
+				perror("-l"); 
+			}
+		}
+
+		else {
+			if (print) {
+				printf("Esito: ok"); 
+			}
+		}
+
+		printf("\n");
+		fflush(stdout);
+
+		token = strtok_r(NULL, ",", &save);
+	}
+
+	return 0;
+}
+
+void cleanup() {
+	if (strcmp(globalSocket, "") != 0) {
+		closeConnection(globalSocket);
+	}
 }

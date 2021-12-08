@@ -319,7 +319,7 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner) {
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             found = 1;
 
-            printf("LOCKFILE: locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, owner);
+           //printf("LOCKFILE: locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, owner);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != owner) {
@@ -339,6 +339,68 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner) {
     pthread_mutex_unlock(&queue->m);
 
     if (!found) {
+        errno = ENOENT;
+        return -1;
+    }
+
+    return 0;
+}
+
+int unlockFileInQueue(queueT *queue, char *filepath, int owner) {
+    // controllo la validità degli argomenti
+    if (!queue || !filepath) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda e' vuota, errore
+    if (queue->len == 0) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    int found = 0;
+    nodeT *temp = queue->head;
+
+    // scorro tutta la coda
+    while (temp && !found) {
+        // se trovo l'elemento cercato...
+        if (strcmp(filepath, (temp->data)->filepath) == 0) {
+            found = 1;
+
+            //printf("UNLOCKFILE: locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, owner);
+
+            // se il file non e' in modalita' locked, non serve fare nulla
+            if (!((temp->data)->O_LOCK)) {
+                (temp->data)->owner = owner;
+                pthread_mutex_unlock(&queue->m);
+                return 0;
+            }
+
+            // se il file e' stato messo in modalita' locked da un client diverso, errore
+            else if ((temp->data)->O_LOCK && (temp->data)->owner != owner) {
+                errno = EPERM;
+                pthread_mutex_unlock(&queue->m);
+                return -1;
+            }
+
+            // altrimenti, resetta il flag
+            else {
+                (temp->data)->O_LOCK = 0;
+                (temp->data)->owner = owner;
+            }
+        }
+
+        temp = temp->next;
+    }
+
+    pthread_mutex_unlock(&queue->m);
+
+    if (!found) {
+        errno = ENOENT;
         return -1;
     }
 
@@ -615,6 +677,13 @@ fileT* find(queueT *queue, char *filepath) {
 
             // ...ne creo una copia e la restituisco
             res = createFileT((temp->data)->filepath, (temp->data)->O_LOCK, (temp->data)->owner, (temp->data)->open);
+
+            if (!res) {
+                perror("createFileT res");
+                pthread_mutex_unlock(&queue->m);
+                return NULL;
+            }
+
             if (writeFileT(res, (temp->data)->content, (temp->data)->size) == -1) {
                 perror("writeFileT res");
                 pthread_mutex_unlock(&queue->m);

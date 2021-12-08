@@ -17,16 +17,30 @@
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
 
+typedef struct struct_of {		
+	char *filename;				// nome del file
+	struct struct_of *next;		// puntatore al prossimo elemento nella lista
+} ofT;
+
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
-static char openedFile[256] = "";			// filepath del file attualmente aperto
-static int createdAndLocked = 0;			// se = 1, il client ha appena creato il file openedFile in modalita' locked
+//static char openedFile[256] = "";			// filepath del file attualmente aperto
+//static char *openFiles[MAX_OPEN_FILES];	// array dei file attualmente aperti
+static ofT *openFiles = NULL;				// lista dei file attualmente aperti
+static int numOfFiles = 0;					// numero di file attualmente aperti
 static char writingDirectory[256] = ""; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
 static char readingDirectory[256] = "";		// cartella dove scrivere i file letti dal server
 
+/**
+ * se l'ultima operazione e' stata una openFile(O_CREATE | O_LOCK), 
+ * questa variabile contiene il filepath dell'ultimo file aperto in modalita' locked.
+ * Serve per la writeFile.
+ */
+static char createdAndLocked[256] = "";	
+
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validità dei parametri
 	if (!sockname || msec <= 0) {
@@ -72,15 +86,35 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	// copio il nome del socket nella variabile globale
 	strncpy(socketName, sockname, SOCKNAME_MAX);
 
+	/*
+	// inizializzo l'array che conterrà i file aperti dal client
+	for (int i = 0; i < MAX_OPEN_FILES; i++) {
+		printf("alloco... %d\n", i);
+		openFiles[i] = calloc(1, 256);
+
+		if (!openFiles[i]) {
+			perror("calloc");
+		}
+
+		strncpy(openFiles[i], "", 2);
+	}
+	*/
+
 	return 0;
 }
 
 int closeConnection(const char* sockname) {
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// se il nome del socket non corrisponde a quello nella variabile globale, errore
 	if (!sockname || strcmp(socketName, sockname) != 0) {
 		errno = EINVAL;
+		return -1;
+	}
+
+	// chiudi tutti i file rimasti aperti
+	if (closeEveryFile() == -1) {
+		perror("closeEveryFile");
 		return -1;
 	}
 
@@ -93,35 +127,48 @@ int closeConnection(const char* sockname) {
 	// resetto la variabile globale che mantiene il nome del socket
 	strncpy(socketName, "", SOCKNAME_MAX);
 
-	//lastOp = 0;
 	return 0;
 }
 
 int openFile(const char* pathname, int flags) {
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validità degli argomenti
-	if (!pathname || strlen(pathname) >= (CMDSIZE-10) || flags < 0 || flags > 3) {
+	if (!pathname || strlen(pathname) >= (256-10) || flags < 0 || flags > 3) {
 		errno = EINVAL;
 		return -1;
 	}
 
-	// controllo che il client sia effettivamente connesso al server
+	// controllo che il client sia connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
 		return -1;
 	}
 
+
+	// controllo che il client non abbia gia' troppi file aperti
+	if (numOfFiles == MAX_OPEN_FILES) {
+		errno = EMFILE;
+		return -1;
+	}
+
+	// controllo che il client non abbia gia' aperto il file passato come argomento
+	if (isOpen(pathname)) {
+		return -1;
+	}
+
+	/*
 	// controllo che il client non abbia gia' un file aperto
 	if (strcmp(openedFile, "") != 0) {
 		errno = EMFILE;
 		return -1;
 	}
+	*/
 
-	char cmd[CMDSIZE] = "";
+	char cmd[256] = "";
 
 	// preparo il comando da inviare al server in formato openFile:pathname:flags
-	memset(cmd, '\0', CMDSIZE);
+	memset(cmd, '\0', 256);
 	strncpy(cmd, "openFile:", 10);
 	strncat(cmd, pathname, strlen(pathname) + 1);
 	strncat(cmd, ":", 2);
@@ -132,7 +179,7 @@ int openFile(const char* pathname, int flags) {
 	// invio il comando al server
 	//printf("openFile: invio %s!\n", cmd);
 
-	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+	if (writen(fd_skt, cmd, 256) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
@@ -197,17 +244,22 @@ int openFile(const char* pathname, int flags) {
 	free(buf);
 	
 	// tengo traccia del file aperto
-	strncpy(openedFile, pathname, strlen(pathname)+1);
+	//strncpy(openedFile, pathname, strlen(pathname)+1);
+
+	if (addOpenFile(pathname) == -1) {
+		perror("addOpenFile");
+		return -1;
+	}
 
 	if (flags == 3) {
-		createdAndLocked = 1;
+		strncpy(createdAndLocked, pathname, strlen(pathname)+1);
 	}
 
 	return 0;
 }
 
 int readFile(const char* pathname, void** buf, size_t* size) {
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -215,27 +267,35 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 		return -1;
 	}
 
-	// controllo che il client sia effettivamente connesso al server
+	// controllo che il client sia connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
 		return -1;
 	}
 
+	// se il file su cui si vuole scrivere non e' stato precedentemente aperto, errore
+	if (isOpen(pathname) != 1) {
+		errno = EPERM;
+		return -1;
+	}
+
+	/*
 	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
 	if (strcmp(openedFile, pathname) != 0) {
 		errno = EPERM;
 		return -1;
 	}
+	*/
 
 	void *bufRes = malloc(BUFSIZE);
-	char cmd[CMDSIZE] = "";
+	char cmd[256] = "";
 
 	// preparo il comando da inviare al server in formato readFile:pathname
-	memset(cmd, '\0', CMDSIZE);
+	memset(cmd, '\0', 256);
 	strncpy(cmd, "readFile:", 11);
 	strncat(cmd, pathname, strlen(pathname) + 1);
 
-	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+	if (writen(fd_skt, cmd, 256) == -1) {
 		free(bufRes);
 		errno = EREMOTEIO;
 		return -1;
@@ -281,7 +341,7 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 }
 
 int readNFiles(int N, const char* dirname) {
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validita' dell'argomento
 	if (!dirname) {
@@ -289,24 +349,24 @@ int readNFiles(int N, const char* dirname) {
 		return -1;
 	}
 
-	// controllo che il client sia effettivamente connesso al server
+	// controllo che il client sia connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
 		return -1;
 	}
 
 	void *bufRes = malloc(BUFSIZE);
-	char cmd[CMDSIZE] = "";
+	char cmd[256] = "";
 	int actualN = N;
 
 	// preparo il comando da inviare al server in formato readNFiles:N
-	memset(cmd, '\0', CMDSIZE);
+	memset(cmd, '\0', 256);
 	strncpy(cmd, "readNFiles:", 13);
 	char NStr[2];
 	snprintf(NStr, sizeof(N)+1, "%d", N);
 	strncat(cmd, NStr, strlen(NStr) + 1);
 
-	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+	if (writen(fd_skt, cmd, 256) == -1) {
 		free(bufRes);
 		errno = EREMOTEIO;
 		return -1;
@@ -356,12 +416,18 @@ int readNFiles(int N, const char* dirname) {
 
 int writeFile(const char* pathname, const char* dirname) {
 	// controlla se la precedente operazione e' stata una openFile(O_CREATE | O_LOCK) terminata con successo.
+	/*
 	if ((strcmp(openedFile, pathname) != 0) || !createdAndLocked) {
 		errno = EPERM;
 		return -1;
 	}
+	*/
+	if (strcmp(createdAndLocked, pathname) != 0) {
+		errno = EPERM;
+		return -1;
+	}
 
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validita' degli argomenti
 	if (!pathname || strlen(pathname) >= BUFSIZE) {
@@ -369,7 +435,7 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	// controllo che il client sia effettivamente connesso al server
+	// controllo che il client sia connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
 		return -1;
@@ -381,7 +447,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	void *buf = malloc(BUFSIZE);
 	void *content = malloc(BUFSIZE);
 	size_t size = 0;
-	char cmd[CMDSIZE] = "";
+	char cmd[256] = "";
 
 	int fdi = -1, lung = 0;
 	// leggo il file da scrivere sul server
@@ -423,7 +489,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	}
 
 	// preparo il comando da inviare al server in formato writeFile:pathname:size
-	memset(cmd, '\0', CMDSIZE);
+	memset(cmd, '\0', 256);
 	strncpy(cmd, "writeFile:", 11);
 	strncat(cmd, pathname, strlen(pathname) + 1);
 	strncat(cmd, ":", 2);
@@ -435,7 +501,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	//printf("writeFile: invio %s!\n", cmd);
 	//fflush(stdout);
 
-	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+	if (writen(fd_skt, cmd, 256) == -1) {
 		free(buf);
 		free(content);
 		errno = EREMOTEIO;
@@ -512,7 +578,7 @@ int writeFile(const char* pathname, const char* dirname) {
 }
 
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
-	createdAndLocked = 0;
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validità degli argomenti
 	if (!pathname || !buf || strlen(pathname) >= BUFSIZE) {
@@ -520,14 +586,22 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		return -1;
 	}
 
-	// controllo che il client sia effettivamente connesso al server
+	// controllo che il client sia connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
 		return -1;
 	}
 
+	/*
 	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
 	if (strcmp(openedFile, pathname) != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	*/
+
+	// se il file su cui si vuole scrivere non e' stato precedentemente aperto, errore
+	if (isOpen(pathname) != 1) {
 		errno = EPERM;
 		return -1;
 	}
@@ -551,10 +625,10 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	//fflush(stdout);
 
 	void *readBuf = malloc(BUFSIZE);
-	char cmd[CMDSIZE] = "";
+	char cmd[256] = "";
 	
 	// preparo il comando da inviare al server in formato appendToFile:pathname:size
-	memset(cmd, '\0', CMDSIZE);
+	memset(cmd, '\0', 256);
 	strncpy(cmd, "appendToFile:", 15);
 	strncat(cmd, pathname, strlen(pathname) + 1);
 	strncat(cmd, ":", 2);
@@ -568,7 +642,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
 	//printf("appendToFile: aspetto la writen...\n");
 	//fflush(stdout);
-	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+	if (writen(fd_skt, cmd, 256) == -1) {
 		free(readBuf);
 		errno = EREMOTEIO;
 		return -1;
@@ -631,8 +705,65 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	return 0;
 }
 
-int closeFile(const char* pathname) {
-	createdAndLocked = 0;
+int lockFile(const char* pathname) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo che il client sia connesso al server
+	if (strcmp(socketName, "") == 0) {
+		errno = ENOTCONN;
+		return -1;
+	}
+
+	// se il file sul quale si vuole acquisire la lock non e' stato ancora aperto...
+	//if (strcmp(openedFile, pathname) != 0) {
+	if (isOpen(pathname) != 1) {
+		// ...provo ad aprirlo in in modalita' locked
+		if (openFile(pathname, O_LOCK) == -1) {
+			// se non si hanno i permessi necessari, richiedo l'operazione di lockFile al server
+			if (strcmp(strerror(errno), "Operation not permitted") == 0) {
+				if (lockFile_aux(pathname) == -1) {
+					return -1;
+				}
+
+				else {
+					// tengo traccia del file aperto
+					//strncpy(openedFile, pathname, strlen(pathname)+1);
+					if (addOpenFile(pathname) == -1) {
+						if (print) {
+							perror("addOpenFile");
+						}
+
+						return -1;
+					}
+
+					return 0;
+				}
+			}
+
+			// errore diverso da EPERM, termina
+			else {
+				return -1;
+			}
+		}
+
+		// se l'openFile ha funzionato, termina con successo
+		else {
+			return 0;
+		}
+	}
+
+	// se il file e' gia' aperto, richiedo direttamente l'operazione di lockFile al server
+	else {
+		return (lockFile_aux(pathname));
+	}
+}
+
+int unlockFile(const char* pathname) {
+	strncpy(createdAndLocked, "", 2);
 
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -640,16 +771,103 @@ int closeFile(const char* pathname) {
 		return -1;
 	}
 
+	// controllo che il client sia connesso al server
+	if (strcmp(socketName, "") == 0) {
+		errno = ENOTCONN;
+		return -1;
+	}
+
+	// se il file non e' stato precedentemente aperto, errore
+	if (isOpen(pathname) != 1) {
+		errno = EPERM;
+		return -1;
+	}
+
+	/*
+	// se il file non e' stato precedentemente aperto, errore
+	if (strcmp(openedFile, pathname) != 0) {
+		errno = EPERM;
+		return -1;
+	}
+	*/
+
+	// preparo il comando da inviare al server in formato unlockFile:pathname
+	char cmd[256] = "";
+	memset(cmd, '\0', 256);
+	strncpy(cmd, "unlockFile:", 13);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+
+	// invio il comando al server
+	if (writen(fd_skt, cmd, 256) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	void *bufRes = malloc(BUFSIZE);
+	// ricevo la risposta dal server
+	int r = readn(fd_skt, bufRes, 3);
+	if (r == -1 || r == 0) {
+		free(bufRes);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, bufRes, 3);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(bufRes, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, bufRes, sizeof(int))) == -1) {
+			free(bufRes);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, bufRes, sizeof(int));
+		free(bufRes);
+		return -1;
+	}
+
+	// unlockFile eseguita con successo
+	else {
+		free(bufRes);
+		return 0;
+	}
+}
+
+int closeFile(const char* pathname) {
+	strncpy(createdAndLocked, "", 2);
+
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// se il file che si vuole chiudere non e' stato precedentemente aperto, errore
+	if (isOpen(pathname) != 1) {
+		printf("non ho aperto il file prima\n");
+		fflush(stdout);
+		errno = EPERM;
+		return -1;
+	}
+
+	/*
 	// controllo che il file da chiudere sia effettivamente aperto
 	if (strcmp(openedFile, pathname) != 0) {
 		errno = ENOENT;
 		return -1;
 	}
+	*/
 
-	char cmd[CMDSIZE] = "";
+	char cmd[256] = "";
 
 	// preparo il comando da inviare al server in formato closeFile:pathname
-	memset(cmd, '\0', CMDSIZE);
+	memset(cmd, '\0', 256);
 	strncpy(cmd, "closeFile:", 11);
 	strncat(cmd, pathname, strlen(pathname) + 1);
 
@@ -660,7 +878,7 @@ int closeFile(const char* pathname) {
 
 	//printf("closeFile: provo la writen...\n");
 	//fflush(stdout);
-	if (writen(fd_skt, cmd, CMDSIZE) == -1) {
+	if (writen(fd_skt, cmd, 256) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
@@ -685,8 +903,8 @@ int closeFile(const char* pathname) {
 	if (strcmp(res, "er") == 0) {
 		memset(buf, 0, BUFSIZE);
 
-		printf("closeFile: provo la seconda readn...\n");
-		fflush(stdout);
+		//printf("closeFile: provo la seconda readn...\n");
+		//fflush(stdout);
 
 		// ...ricevo l'errno
 		if ((readn(fd_skt, buf, sizeof(int))) == -1) {
@@ -702,7 +920,10 @@ int closeFile(const char* pathname) {
 	}
 
 	// aggiorno la variabile globale che tiene traccia del file aperto
-	strncpy(openedFile, "", 1);
+	//strncpy(openedFile, "", 1);
+	if (removeOpenFile(pathname) == -1) {
+		perror("removeOpenFile");
+	}
 
 	free(buf);
 	return 0;
@@ -972,6 +1193,143 @@ int receiveNFiles(const char *dirname) {
 	return filesCount;
 }
 
+int lockFile_aux(const char *pathname) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// preparo il comando da inviare al server in formato lockFile:pathname
+	char cmd[256] = "";
+	memset(cmd, '\0', 256);
+	strncpy(cmd, "lockFile:", 11);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+
+	// invio il comando al server
+	if (writen(fd_skt, cmd, 256) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	void *bufRes = malloc(BUFSIZE);
+	// ricevo la risposta dal server
+	int r = readn(fd_skt, bufRes, 3);
+	if (r == -1 || r == 0) {
+		free(bufRes);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, bufRes, 3);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(bufRes, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, bufRes, sizeof(int))) == -1) {
+			free(bufRes);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, bufRes, sizeof(int));
+		free(bufRes);
+		return -1;
+	}
+
+	// lockFile eseguita con successo
+	else {
+		free(bufRes);
+		return 0;
+	}
+}
+
+/*
+// funzione ausiliaria che aggiunge un file all'array di file attualmente aperti
+int addOpenFile(const char *pathname) {
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	if (numOfFiles == MAX_OPEN_FILES) {
+		errno = EMFILE;
+		return -1;
+	}
+
+	for (int i = 0; i < MAX_OPEN_FILES; i++) {
+		if (!openFiles[i]) {
+			openFiles[i] = calloc(1, 256);
+			strncpy(openFiles[i], pathname, strlen(pathname)+1);
+			numOfFiles++;
+			return 0;
+		}
+	}
+
+	return -1;
+}
+
+// funzione ausiliaria che rimuove un file dall'array di file attualmente aperti
+int removeOpenFile(const char *pathname) {
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	for (int i = 0; i < MAX_OPEN_FILES; i++) {
+		if (openFiles[i]) {
+			if (strcmp(openFiles[i], pathname) == 0) {
+				free(openFiles[i]);
+				numOfFiles--;
+
+				return 0;
+			}
+		}
+	}
+
+	errno = ENOENT;
+	return -1;
+}
+
+// funzione ausiliaria che restituisce 1 se il file passato come argomento e' attualmente aperto, 0 altrimenti
+int isOpen(const char *pathname) {
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	for (int i = 0; i < MAX_OPEN_FILES; i++) {
+		if (openFiles[i]) {
+			if (strcmp(openFiles[i], pathname) == 0) {
+				return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+int closeEveryFile() {
+	// chiudi tutti i file attualmente aperti
+	for (int i = 0; i < MAX_OPEN_FILES; i++) {
+		if (openFiles[i]) {
+			if (closeFile(openFiles[i]) == -1) {
+				return -1;
+			}
+			if (removeOpenFile(openFiles[i]) == -1) {
+				return -1;
+			}
+		}
+	}
+
+	return 0;
+}
+*/
+
 // imposta la cartella sulla quale scrivere i file letti dal server o espulsi in seguito a capacity misses
 int setDirectory(char* Dir, int rw) {
 	// controllo la validita' dell'argomento
@@ -1001,4 +1359,144 @@ void printInfo(int p) {
 	else {
 		print = 0;
 	}
+}
+
+int addOpenFile(const char *pathname) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// se il client ha gia' troppi file aperti, errore
+	if (numOfFiles == MAX_OPEN_FILES) {
+		errno = EMFILE;
+		return -1;
+	}
+
+	// creo il nuovo elemento allocandone la memoria
+	ofT *new = NULL;
+	if ((new = malloc(sizeof(ofT))) == NULL) {
+		perror("malloc ofT");
+		return -1;
+	}
+
+	if ((new->filename = malloc(256)) == NULL) {
+		perror("malloc filename");
+		free(new);
+		return -1;
+	}
+
+	strncpy(new->filename, pathname, strlen(pathname)+1);
+
+	new->next = NULL;
+
+	ofT *tail = openFiles;
+
+	// se la lista era vuota, il file aggiunto diventa il primo della lista
+	if (openFiles == NULL) {
+		openFiles = new;
+	}
+
+	// altrimenti, scorro tutta la lista e aggiungo il file come ultimo elemento
+	else {
+		while (tail->next) {
+			tail = tail->next;
+		}
+
+		tail->next = new;
+	}
+
+	numOfFiles++;
+	return 0;
+}
+
+int removeOpenFile(const char *pathname) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// se la lista dei file aperti e' vuota, errore
+	if (openFiles == NULL || numOfFiles == 0) {
+		errno = ENOENT;
+		return -1;
+	}
+
+	ofT *temp = openFiles;
+	ofT *prec = NULL;
+
+	// controllo se il file da rimuovere e' il primo elemento della lista
+	if (strcmp(temp->filename, pathname) == 0) {
+		openFiles = temp->next;
+		free(temp->filename);
+		free(temp);
+
+		return 0;
+	}
+
+	// altrimenti, scorri tutta la lista
+	while (temp) {
+		prec = temp;
+		temp = temp->next;
+
+		if (strcmp(temp->filename, pathname) == 0) {
+			prec->next = temp->next;
+			free(temp->filename);
+			free(temp);
+			return 0;
+		}
+	}
+
+	errno = ENOENT;
+	return -1;
+}
+
+int isOpen(const char *pathname) {
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// controllo se la lista dei file aperti e' vuota
+	if (openFiles == NULL || numOfFiles == 0) {
+		return 0;
+	}
+
+	// scorro tutta la lista
+	ofT *temp = openFiles;
+	while (temp) {
+		if (strcmp(temp->filename, pathname) == 0) {
+			return 1;
+		}
+
+		temp = temp->next;
+	}
+
+	return 0;
+}
+
+int closeEveryFile() {
+	// controllo che la lista dei file aperti non sia vuota
+	if (openFiles != NULL && numOfFiles > 0) {
+		// scorro tutta la lista
+		ofT *temp = openFiles;
+		ofT *prec = temp;
+		while (temp) {
+			temp = temp->next;
+			if (closeFile(prec->filename) == -1) {
+				return -1;
+			}
+		}
+	}
+
+	/*
+	if (openFiles) {
+		free(openFiles);
+	}
+	*/
+
+	return 0;
 }
