@@ -143,17 +143,23 @@ int enqueue(queueT *queue, fileT* data) {
 
     newNode->data = data;
     newNode->next = NULL;
+    nodeT *temp = queue->head;
 
     // se è il primo elemento della coda
-    if (queue->head == NULL && queue->tail == NULL) {
-        queue->head = queue->tail = newNode;
+    if (queue->head == NULL) {
+        queue->head = newNode;
     }
 
     // se non è il primo elemento della coda
     else {
-        (queue->tail)->next = newNode;
-        queue->tail = newNode;
+        while (temp->next) {
+            temp = temp->next;
+        }
+
+        temp->next = newNode;
     }
+
+    queue->tail = newNode;
 
     queue->len++;
     queue->size += data->size;
@@ -237,7 +243,7 @@ fileT* dequeue(queueT *queue) {
     */
 
     if ((queue->head)->data == NULL) {
-        perror("WTF???");
+        perror("DEBUG WTF???");
     }
 
     fileT *data = (queue->head)->data;
@@ -251,7 +257,7 @@ fileT* dequeue(queueT *queue) {
     }
 
     if (data->filepath == NULL) {
-        printf("WTF?");
+        printf("DEBUG WTF?");
     }
    
     queue->len--;
@@ -681,7 +687,7 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
 
     int found = 0;
     nodeT *temp = queue->head;
-    nodeT *prec = temp;
+    nodeT *prec = queue->head;
 
     // scorro tutta la coda
     while (temp && !found) {
@@ -697,34 +703,29 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
             }
 
             // se il file da rimuovere e' il primo elemento della coda
-            if (temp == queue->head) {
+            if (temp == prec) {
                 printf("DEBUG Rimuovo il primo elemento\n");
                 fflush(stdout);
                 queue->head = temp->next;
 
-                if (queue->head == NULL) {
+                if (!temp->next) {
                     queue->tail = temp;
                 }
             }
 
-            // se il file da rimuovere e' l'ultimo elemento della coda
-            else if (temp == queue->tail) {
-                printf("DEBUG Rimuovo l'ultimo elemento\n");
-                fflush(stdout);
-                prec->next = temp->next;
-                queue->tail = prec;
-            }
-
-            // altrimenti
             else {
-                printf("DEBUG Rimuovo un el in mezzo\n");
-                fflush(stdout);
                 prec->next = temp->next;
+
+                if (!prec->next) {
+                    queue->tail = prec;
+                }
             }
 
             queue->len--;
             queue->size -= (temp->data)->size;
             assert(queue->len >= 0);
+
+            printf("DEBUG ho rimosso un elemento, queue->Len = %zu\n", queue->len);
             
             // libero la memoria
             destroyFile(temp->data);
@@ -734,8 +735,8 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
         }
 
         printf("DEBUG Scorro la coda...\n");
-        if (temp != queue->head) {
-             prec = temp;
+        if (prec != temp) {
+             prec = prec->next;
         }
         temp = temp->next;
     }
@@ -748,6 +749,43 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
 
     return 0;
 }
+
+/*
+int removeFileFromQueue(queueT *queue, char *filepath, int client) {
+    // controllo la validità degli argomenti
+    if (!queue || !filepath) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    printf("DEBUG sono dentro la RemoveFile\n");
+
+    pthread_mutex_lock(&queue->m);
+
+    queueT *tempQueue = createQueue(getLen(queue), getSize(queue));
+    int cnt = 0;
+
+    fileT *dequeueF;
+    while ((dequeueF = dequeue(queue)) != NULL) {
+        if (strcmp(dequeueF->filepath, filepath) == 0) {
+            break;
+        }
+
+        enqueue(tempQueue, dequeueF);
+        cnt++;
+    }
+
+    if (cnt > 0) {
+        while ((dequeueF = dequeue(tempQueue)) != NULL) {
+            enqueue(queue, dequeueF);
+        }
+    }
+
+    pthread_mutex_unlock(&queue->m);
+
+    return 0;
+}
+*/
 
 // attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
 fileT* find(queueT *queue, char *filepath) {
@@ -836,7 +874,11 @@ void destroyQueue(queueT *queue) {
         while (queue->len > 0) {
             printf("DestroyQueue: queue len = %ld\n", queue->len);
 
+            errno = 0;
             voiDequeue(queue);
+            if (errno) {
+                perror("voiDequeue");
+            }
         }
 
         cleanupQueue(queue);
@@ -846,6 +888,7 @@ void destroyQueue(queueT *queue) {
 // funzione di pulizia
 void cleanupQueue(queueT *queue) {
     if (queue) {
+        /*
         if (queue->head) {
             free(queue->head);
         }
@@ -853,6 +896,7 @@ void cleanupQueue(queueT *queue) {
         if (queue->tail) {
             free(queue->tail);
         }
+        */
 
         if (&queue->m) {
             pthread_mutex_destroy(&queue->m);

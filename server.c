@@ -1062,7 +1062,7 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 
 	destroyFile(findF);
 
-	printf("openFile: found = %d\n", found);
+	printf("DEBUG openFile: found = %d\n", found);
 	fflush(stdout);
 
 	// se il client richiede di creare un file che esiste già, errore
@@ -1074,6 +1074,7 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 	
 	// se il client cerca di aprire un file inesistente, errore
 	else if (!O_CREATE && !found) {
+		printf("DEBUG il client cerca di aprire un file inesistente! flags = %d\n", flags);
 		errno = ENOENT;
 		memcpy(res, er, 3);
 		goto send;
@@ -1083,7 +1084,7 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 	else if (O_CREATE && !found) {
 		// se la cache e' piena, espelli un file secondo la politica FIFO
 		if (getLen(queue) == queue->maxLen) {
-			printf("openFile: coda piena (queue->len = %ld), espello un elemento.\n", getLen(queue));
+			printf("DEBUG openFile: coda piena (queue->len = %ld), espello un elemento.\n", getLen(queue));
 			fflush(stdout);
 			espulso = dequeue(queue);
 
@@ -1498,6 +1499,7 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 
 	// se il file non e' presente, errore
 	else {
+		printf("debug WriteFile: il client sta cercando di scrivere su un file non presente\n");
 		errno = ENOENT;
 		memcpy(res, er, 3);
 		goto send;
@@ -1752,6 +1754,13 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 		}
 	}
 
+	// sveglio il prossimo thread in attesa
+	if (pthread_cond_signal(lockCond) != 0) {
+		perror("pthread_cond_signal");
+		memcpy(res, er, 3);
+		goto send;
+	}
+
 	if (pthread_mutex_unlock(lock) != 0) {
 		perror("pthread_mutex_unlock");
 		memcpy(res, er, 3);
@@ -1956,21 +1965,6 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 			memcpy(res, er, 3);
 		}
 
-		else {
-			// segnalo ai thread in attesa che e' stata effettuata una closeFile
-			if (pthread_mutex_lock(lock) != 0) {
-				perror("pthread_mutex_lock");
-			}
-
-			if (pthread_cond_signal(lockCond) != 0) {
-				perror("pthread_cond_signal");
-			}
-
-			if (pthread_mutex_unlock(lock) != 0) {
-				perror("pthread_mutex_unlock");
-			}
-		}
-
 		destroyFile(findF);
 	}
 
@@ -1985,6 +1979,20 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 	void *buf = NULL;
 	buf = malloc(BUFSIZE);
 	memcpy(buf, res, 3);
+
+	printf("DEBUG Sveglio la gente\n");
+	// segnalo ai thread in attesa che e' stata effettuata una closeFile
+	if (pthread_mutex_lock(lock) != 0) {
+		perror("pthread_mutex_lock");
+	}
+
+	if (pthread_cond_signal(lockCond) != 0) {
+		perror("pthread_cond_signal");
+	}
+
+	if (pthread_mutex_unlock(lock) != 0) {
+		perror("pthread_mutex_unlock");
+	}
 
 	// invio risposta al client
 	if (writen(fd_c, buf, 3) == -1) {
@@ -2065,21 +2073,27 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 			memcpy(res, er, 3);
 		}
 
-		else {
-			printf("DEBUG Sveglio la gente\n");
-			// segnalo ai thread in attesa che e' stata effettuata una removeFile
-			if (pthread_mutex_lock(lock) != 0) {
-				perror("pthread_mutex_lock");
-			}
+		/*
+		queueT *tempQueue = createQueue(getLen(queue), getSize(queue));
+	    int cnt = 0;
 
-			if (pthread_cond_signal(lockCond) != 0) {
-				perror("pthread_cond_signal");
-			}
+	    fileT *dequeueF;
+	    while ((dequeueF = dequeue(queue)) != NULL) {
+	        if (strcmp(dequeueF->filepath, filepath) == 0) {
+	            break;
+	        }
 
-			if (pthread_mutex_unlock(lock) != 0) {
-				perror("pthread_mutex_unlock");
-			}
-		}
+	        enqueue(tempQueue, dequeueF);
+	        cnt++;
+	    }
+
+	    if (cnt > 0) {
+	        while ((dequeueF = dequeue(tempQueue)) != NULL) {
+	            enqueue(queue, dequeueF);
+	        }
+	    }
+	    destroyQueue(tempQueue);
+	    */
 
 		destroyFile(findF);
 	}
@@ -2095,13 +2109,32 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 	buf = malloc(BUFSIZE);
 	memcpy(buf, res, 3);
 
+
+	printf("DEBUG Sveglio la gente\n");
+	// segnalo ai thread in attesa che e' stata effettuata una removeFile
+	if (pthread_mutex_lock(lock) != 0) {
+		perror("pthread_mutex_lock");
+	}
+
+	if (pthread_cond_signal(lockCond) != 0) {
+		perror("pthread_cond_signal");
+	}
+
+	if (pthread_mutex_unlock(lock) != 0) {
+		perror("pthread_mutex_unlock");
+	}
+
 	// invio risposta al client
+	printf("DEBUG removeFile: invio risposta\n");
+	fflush(stdout);
 	if (writen(fd_c, buf, 3) == -1) {
 		perror("writen");
 	}
 
 	// se c'è stato un errore, invio errno al client
-	else if(strcmp(res, "er") == 0) {			
+	else if(strcmp(res, "er") == 0) {	
+		printf("DEBUG removeFile: invio errno\n");
+		fflush(stdout);		
 		if (writen(fd_c, &errno, sizeof(int)) == -1) {
 			perror("writen");
 		}
@@ -2120,6 +2153,8 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 	}
 
 	else {
+		printf("DEBUG removeFile: tutto ok\n");
+		fflush(stdout);
 		// scrivo sul logFile
 		char removeFileStr[512] = "Il client ";
 		char removeFileFdStr[32];

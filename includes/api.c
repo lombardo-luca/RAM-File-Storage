@@ -854,14 +854,6 @@ int closeFile(const char* pathname) {
 		return -1;
 	}
 
-	/*
-	// controllo che il file da chiudere sia effettivamente aperto
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = ENOENT;
-		return -1;
-	}
-	*/
-
 	char cmd[256] = "";
 
 	// preparo il comando da inviare al server in formato closeFile:pathname
@@ -869,20 +861,11 @@ int closeFile(const char* pathname) {
 	strncpy(cmd, "closeFile:", 11);
 	strncat(cmd, pathname, strlen(pathname) + 1);
 
-	// invio il comando al server
-	//printf("closeFile: invio %s!\n", cmd);
-	//fflush(stdout);
-
-
-	//printf("closeFile: provo la writen...\n");
-	//fflush(stdout);
 	if (writen(fd_skt, cmd, 256) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	//printf("closeFile: provo la prima readn...\n");
-	//fflush(stdout);
 	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
@@ -895,14 +878,9 @@ int closeFile(const char* pathname) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	//printf("closeFile: ho ricevuto: %s!\n", res);
-
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
 		memset(buf, 0, BUFSIZE);
-
-		//printf("closeFile: provo la seconda readn...\n");
-		//fflush(stdout);
 
 		// ...ricevo l'errno
 		if ((readn(fd_skt, buf, sizeof(int))) == -1) {
@@ -917,8 +895,7 @@ int closeFile(const char* pathname) {
 		return -1;
 	}
 
-	// aggiorno la variabile globale che tiene traccia del file aperto
-	//strncpy(openedFile, "", 1);
+	// aggiorno la variabile globale che tiene traccia dei file aperti
 	if (removeOpenFile(pathname) == -1) {
 		perror("removeOpenFile");
 	}
@@ -1326,88 +1303,6 @@ int lockFile_aux(const char *pathname) {
 	}
 }
 
-/*
-// funzione ausiliaria che aggiunge un file all'array di file attualmente aperti
-int addOpenFile(const char *pathname) {
-	if (!pathname) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	if (numOfFiles == MAX_OPEN_FILES) {
-		errno = EMFILE;
-		return -1;
-	}
-
-	for (int i = 0; i < MAX_OPEN_FILES; i++) {
-		if (!openFiles[i]) {
-			openFiles[i] = calloc(1, 256);
-			strncpy(openFiles[i], pathname, strlen(pathname)+1);
-			numOfFiles++;
-			return 0;
-		}
-	}
-
-	return -1;
-}
-
-// funzione ausiliaria che rimuove un file dall'array di file attualmente aperti
-int removeOpenFile(const char *pathname) {
-	if (!pathname) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	for (int i = 0; i < MAX_OPEN_FILES; i++) {
-		if (openFiles[i]) {
-			if (strcmp(openFiles[i], pathname) == 0) {
-				free(openFiles[i]);
-				numOfFiles--;
-
-				return 0;
-			}
-		}
-	}
-
-	errno = ENOENT;
-	return -1;
-}
-
-// funzione ausiliaria che restituisce 1 se il file passato come argomento e' attualmente aperto, 0 altrimenti
-int isOpen(const char *pathname) {
-	if (!pathname) {
-		errno = EINVAL;
-		return -1;
-	}
-
-	for (int i = 0; i < MAX_OPEN_FILES; i++) {
-		if (openFiles[i]) {
-			if (strcmp(openFiles[i], pathname) == 0) {
-				return 1;
-			}
-		}
-	}
-
-	return 0;
-}
-
-int closeEveryFile() {
-	// chiudi tutti i file attualmente aperti
-	for (int i = 0; i < MAX_OPEN_FILES; i++) {
-		if (openFiles[i]) {
-			if (closeFile(openFiles[i]) == -1) {
-				return -1;
-			}
-			if (removeOpenFile(openFiles[i]) == -1) {
-				return -1;
-			}
-		}
-	}
-
-	return 0;
-}
-*/
-
 // imposta la cartella sulla quale scrivere i file letti dal server o espulsi in seguito a capacity misses
 int setDirectory(char* Dir, int rw) {
 	// controllo la validita' dell'argomento
@@ -1561,12 +1456,21 @@ int closeEveryFile() {
 	if (openFiles != NULL && numOfFiles > 0) {
 		// scorro tutta la lista
 		ofT *temp = openFiles;
-		ofT *prec = temp;
+		ofT *prec = NULL;
 		while (temp) {
+			prec = temp;
 			temp = temp->next;
+
 			if (closeFile(prec->filename) == -1) {
-				return -1;
-			}
+				// se il file e' stato rimosso dal server, eliminalo dalla lista dei file aperti
+				if (removeOpenFile(prec->filename) == -1) {
+					perror("removeOpenFile");
+				}
+
+				else {
+					numOfFiles--;
+				}
+			}	
 		}
 	}
 

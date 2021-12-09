@@ -822,9 +822,11 @@ int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag) {
 	}
 
 	if (cmd_W(ftw_filePath, wT->Directory, wT->print) == -1) {
+		/*
 		if (wT->print) {
 			perror("-w");
 		}
+		*/
 	}
 
 	return 0;
@@ -860,6 +862,7 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 		}
 
 		// creo il file in modalita' locked
+		printf("Inviio flags = %d\n", O_CREATE | O_LOCK);
 		if (openFile(token, O_CREATE | O_LOCK) == -1) {
 			/*
 			if (strcmp(strerror(errno), "File exists") == 0) {
