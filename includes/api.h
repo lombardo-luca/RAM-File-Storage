@@ -1,6 +1,6 @@
 #define CMDSIZE 256
 #define BUFSIZE 10000 // 10KB
-#define MAX_OPEN_FILES 2
+#define MAX_OPEN_FILES 50
 #define O_CREATE 1
 #define O_LOCK 2
 
@@ -98,6 +98,13 @@ int unlockFile(const char* pathname);
  * Quando un file viene chiuso, la mutua esclusione viene rilasciata automaticamente.
  */
 int closeFile(const char *pathname);
+
+/**
+ * Rimuove il file cancellandolo dal file storage server. L’operazione fallisce se il file non è in stato locked, 
+ * o è in stato locked da parte di un processo client diverso da chi effettua la removeFile.
+ */
+int removeFile(const char* pathname);
+
 
 // Funzioni ausiliarie
 int receiveFile(const char *dirname, void **bufA, size_t *sizeA);

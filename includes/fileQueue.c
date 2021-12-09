@@ -426,6 +426,16 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
     int found = 0;
     nodeT *temp = queue->head;
 
+    if (!(temp->data)->filepath) {
+        printf("DEBUG Errore greve1!\n");
+        fflush(stdout);
+    }
+
+    if (!filepath) {
+        printf("DEBUG Errore greve2!\n");
+        fflush(stdout);
+    }
+
     // scorro tutta la coda
     while (temp && !found) {
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
@@ -455,6 +465,7 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
     pthread_mutex_unlock(&queue->m);
 
     if (!found) {
+        errno = ENOENT;
         return -1;
     }
 
@@ -638,6 +649,94 @@ int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size,
             queue->size += size;
         }
 
+        temp = temp->next;
+    }
+
+    pthread_mutex_unlock(&queue->m);
+
+    if (!found) {
+        return -1;
+    }
+
+    return 0;
+}
+
+int removeFileFromQueue(queueT *queue, char *filepath, int client) {
+    // controllo la validità degli argomenti
+    if (!queue || !filepath) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    printf("DEBUG sono dentro la RemoveFile\n");
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda e' vuota, errore
+    if (queue->len == 0) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return -1;
+    }
+
+    int found = 0;
+    nodeT *temp = queue->head;
+    nodeT *prec = temp;
+
+    // scorro tutta la coda
+    while (temp && !found) {
+        if (strcmp(filepath, (temp->data)->filepath) == 0) {
+            // ho trovato il file che cercavo
+            found = 1;
+
+            // se il file non e' in modalita' locked, oppure e' stato messo in modalita' locked da un client diverso, errore
+            if (!(temp->data)->O_LOCK || ((temp->data)->O_LOCK && (temp->data)->owner != client)) {
+                errno = EPERM;
+                pthread_mutex_unlock(&queue->m);
+                return -1;
+            }
+
+            // se il file da rimuovere e' il primo elemento della coda
+            if (temp == queue->head) {
+                printf("DEBUG Rimuovo il primo elemento\n");
+                fflush(stdout);
+                queue->head = temp->next;
+
+                if (queue->head == NULL) {
+                    queue->tail = temp;
+                }
+            }
+
+            // se il file da rimuovere e' l'ultimo elemento della coda
+            else if (temp == queue->tail) {
+                printf("DEBUG Rimuovo l'ultimo elemento\n");
+                fflush(stdout);
+                prec->next = temp->next;
+                queue->tail = prec;
+            }
+
+            // altrimenti
+            else {
+                printf("DEBUG Rimuovo un el in mezzo\n");
+                fflush(stdout);
+                prec->next = temp->next;
+            }
+
+            queue->len--;
+            queue->size -= (temp->data)->size;
+            assert(queue->len >= 0);
+            
+            // libero la memoria
+            destroyFile(temp->data);
+            free(temp);
+
+            break;
+        }
+
+        printf("DEBUG Scorro la coda...\n");
+        if (temp != queue->head) {
+             prec = temp;
+        }
         temp = temp->next;
     }
 

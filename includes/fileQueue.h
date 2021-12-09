@@ -126,6 +126,11 @@ int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, 
 int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client);
 
 /**
+ * 
+ */
+int removeFileFromQueue(queueT *queue, char *filepath, int client);
+
+/**
  * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore).
  * \param queue -> puntatore alla coda sulla quale cercare il fileT
  * \param filepath -> path assoluto del fileT da cercare 

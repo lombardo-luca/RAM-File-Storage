@@ -850,8 +850,6 @@ int closeFile(const char* pathname) {
 
 	// se il file che si vuole chiudere non e' stato precedentemente aperto, errore
 	if (isOpen(pathname) != 1) {
-		printf("non ho aperto il file prima\n");
-		fflush(stdout);
 		errno = EPERM;
 		return -1;
 	}
@@ -925,6 +923,75 @@ int closeFile(const char* pathname) {
 		perror("removeOpenFile");
 	}
 
+	else {
+		numOfFiles--;
+	}
+
+	free(buf);
+	return 0;
+}
+
+int removeFile(const char* pathname) {
+	strncpy(createdAndLocked, "", 2);
+
+	// controllo la validita' dell'argomento
+	if (!pathname) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// se il file che si vuole cancellare non e' stato precedentemente aperto, errore
+	if (isOpen(pathname) != 1) {
+		errno = EPERM;
+		return -1;
+	}
+
+	char cmd[256] = "";
+
+	// preparo il comando da inviare al server in formato removeFile:pathname
+	memset(cmd, '\0', 256);
+	strncpy(cmd, "removeFile:", 13);
+	strncat(cmd, pathname, strlen(pathname) + 1);
+
+	if (writen(fd_skt, cmd, 256) == -1) {
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	// ricevo la risposta dal server
+	void *buf = malloc(BUFSIZE);
+	int r = readn(fd_skt, buf, 3);
+	if (r == -1 || r == 0) {
+		free(buf);
+		errno = EREMOTEIO;
+		return -1;
+	}
+
+	char res[3];
+	memcpy(res, buf, 3);
+
+	// se il server mi ha risposto con un errore...
+	if (strcmp(res, "er") == 0) {
+		memset(buf, 0, BUFSIZE);
+
+		// ...ricevo l'errno
+		if ((readn(fd_skt, buf, sizeof(int))) == -1) {
+			free(buf);
+			errno = EREMOTEIO;
+			return -1;
+		}
+
+		// setto il mio errno uguale a quello che ho ricevuto dal server
+		memcpy(&errno, buf, sizeof(int));
+		free(buf);
+		return -1;
+	}
+
+	// aggiorno la variabile globale che tiene traccia dei file aperti
+	if (removeOpenFile(pathname) == -1) {
+		perror("removeOpenFile");
+	}
+
 	free(buf);
 	return 0;
 }
@@ -934,7 +1001,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	void *buf = malloc(BUFSIZE);
 	memset(buf, 0, BUFSIZE);
 	char filepath[BUFSIZE];
-	size_t size;
+	size_t size = 0;
 	char dir[256] = "";
 	void *content = NULL;
 	char *filename = malloc(256);
@@ -1065,7 +1132,7 @@ int receiveNFiles(const char *dirname) {
 	void *buf = NULL;
 	buf = malloc(BUFSIZE);
 	char filepath[BUFSIZE];
-	size_t size;
+	size_t size = 0;
 	int fine = 0;
 	char dir[256] = "";
 	char *filename = malloc(256);
@@ -1073,6 +1140,14 @@ int receiveNFiles(const char *dirname) {
 
 	// se e' stata passata una directory, usala per scriverci dentro i file ricevuti dal serevr
 	if (dirname && strcmp(dirname, "") != 0) {
+		// se la directory non esiste, creala
+		if (mkdir(dirname, 0777) == -1) {
+			if (strcmp(strerror(errno), "File exists") != 0) {
+				free(buf);
+				return -1;
+			}
+		}
+
 		strncpy(dir, dirname, strlen(dirname)+1);
 
 		if (dir[strlen(dir)] != '/') {
@@ -1082,6 +1157,8 @@ int receiveNFiles(const char *dirname) {
 	
 	while (!fine) {
 		memset(buf, 0, BUFSIZE);
+		memset(filepath, '\0', BUFSIZE);
+		size = 0;
 		void *content = NULL;
 
 		// ricevo prima il filepath
@@ -1092,6 +1169,8 @@ int receiveNFiles(const char *dirname) {
 		}
 
 		strncpy(filepath, buf, BUFSIZE);
+
+		//printf("DEBUG: ho ricevuto filepath = %s\n", filepath);
 
 		// se ho finito di ricevere file, esci
 		if (strcmp(filepath, ".FINE") == 0) {
@@ -1133,14 +1212,12 @@ int receiveNFiles(const char *dirname) {
 			return -1;
 		}
 
-		//printf("Ho ricevuto il contenuto!\n");
-
 		// se il client ha specificato una cartella, vi scrivo dentro il file appena ricevuto
 		if (strcmp(dir, "") != 0) {
-			//printf("SCRITTURA SU FILE\n");
 			memset(filename, '\0', 256);
 			strncpy(filename, filepath, strlen(filepath)+1);
 			char fullpath[512] = "";
+			memset(fullpath, '\0', 256);
 			strncpy(fullpath, dir, 256);
 
 			/**
@@ -1156,13 +1233,12 @@ int receiveNFiles(const char *dirname) {
 				i++;
 			}
 
-			//printf("Dir: %s Filename: %s Fullpath: %s\n", dir, filename, fullpath);
 			strncat(fullpath, filename, 256);
-			//printf("Voglio scrivere %ld bytes in %s\n", size, fullpath);
 
 			// Apro file di output
 			int fdo;
-			if ((fdo = open(fullpath, O_CREAT | O_WRONLY, 0666)) == -1) {
+			if ((fdo = open(fullpath, O_WRONLY | O_CREAT, 0666)) == -1) {
+				perror("open1");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -1170,6 +1246,7 @@ int receiveNFiles(const char *dirname) {
 			}
 
 			if (write(fdo, content, size) == -1) {
+				perror("open2");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -1177,6 +1254,7 @@ int receiveNFiles(const char *dirname) {
 			}
 
 			if (close(fdo) == -1) {
+				perror("open3");
 				free(content);
 		    	free(filename);
 		    	free(buf);

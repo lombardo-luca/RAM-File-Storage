@@ -47,6 +47,7 @@ int cmd_r(const char *filelist, char *directory, int print);
 int cmd_R(const char *numStr, char *directory, int print);
 int cmd_l(const char *filelist, int print);
 int cmd_u(const char *filelist, int print);
+int cmd_c(const char *filelist, int print);
 void cleanup();
 
 void testOpenFile() {
@@ -228,7 +229,7 @@ int main(int argc, char* argv[]) {
 	cmdList = calloc(1, sizeof(cmdT));
 	
 	// ciclo per il parsing dei comandi
-	while ((opt = getopt(argc, argv, ":hpf:t:w:W:D:r:R:d:l:u:")) != -1) {
+	while ((opt = getopt(argc, argv, ":hpf:t:w:W:D:r:R:d:l:u:c:")) != -1) {
 		switch (opt) {
 			// stampa la lista di tutte le opzioni accettate dal client e termina immediatamente
 			case 'h':
@@ -277,16 +278,18 @@ int main(int argc, char* argv[]) {
 				break;
 
 			case 'w':	// scrivi sul server 'n' file contenuti in una cartella
-				// alloca la memoria per la variabile globale che contiene le informazioni necessarie per cmd_w
-				if ((wT = (cmd_w_T*) calloc(1, sizeof(cmd_w_T))) == NULL) {
-					perror("calloc wT");
-					goto cleanup;
-				}
-
 				if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
 					fprintf(stderr, "Il comando -w necessita di un argomento.\n");
 					optind -= 1;
 					goto cleanup;
+				}
+
+				// alloca la memoria per la variabile globale che contiene le informazioni necessarie per cmd_w
+				if (wT == NULL) {
+					if ((wT = (cmd_w_T*) calloc(1, sizeof(cmd_w_T))) == NULL) {
+						perror("calloc wT");
+						goto cleanup;
+					}
 				}
 
 				memset(args, '\0', 256);
@@ -301,6 +304,7 @@ int main(int argc, char* argv[]) {
  			case 'd':	// cartella dove vengono scritti i file letti dal server
  			case 'l':	// lista di nomi di file sui quali acquisire la mutua esclusione
  			case 'u':	// lista di nomi di file sui quali rilasciare la mutua esclusione
+ 			case 'c':	// lista di nomi di file da rimuovere dallo storage del server
  				if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
 					fprintf(stderr, "Il comando -%c necessita di un argomento.\n", optopt);
 					goto cleanup;
@@ -661,6 +665,14 @@ int execute(cmdT *cmdList, int print) {
 				r = 0;
 
 				cmd_u(temp->arg, print);
+				break;
+
+			// rimuovi dallo storage del server uno o piu' file
+			case 'c':
+				w = 0;
+				r = 0;
+
+				cmd_c(temp->arg, print);
 				break;
 		}
 
@@ -1160,6 +1172,61 @@ int cmd_u(const char *filelist, int print) {
 
 		else {
 			if (print) {
+				printf("Esito: ok"); 
+			}
+		}
+
+		printf("\n");
+		fflush(stdout);
+
+		token = strtok_r(NULL, ",", &save);
+	}
+
+	return 0;
+}
+
+// cancella uno o piu' file dallo storage del server
+int cmd_c(const char *filelist, int print) {
+	// controllo la validita' dell'argomento
+	if (!filelist) {
+		errno = EINVAL;
+		return -1;
+	}
+
+	// parso la lista di file da cancellare
+	char *token = NULL, *save = NULL;
+	char tokenList[256] = "";
+	strncpy(tokenList, filelist, strlen(filelist)+1);
+	token = strtok_r(tokenList, ",", &save);
+
+	if (print) {
+		printf("\nc - Cancello i seguenti file dal server:\n");
+		fflush(stdout);
+	}
+
+	// per ogni file nella lista...
+	while (token != NULL) {
+		if (print != 0) {
+			printf("\n%-20s", token); 
+			fflush(stdout);
+		}
+
+		if (lockFile(token) == -1) {
+			if (print) {
+				printf("Esito: errore");
+				perror("-c"); 
+			}
+		}
+
+		else {
+			if (removeFile(token) == -1) {
+				if (print) {
+					printf("Esito: errore");
+					perror("-c"); 
+				}
+			}
+
+			else if (print) {
 				printf("Esito: ok"); 
 			}
 		}
