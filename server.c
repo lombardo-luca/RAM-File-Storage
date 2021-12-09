@@ -1367,9 +1367,12 @@ void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 				break;
 			}
 
-			if (sendFile(f, fd_c, logFileT) == -1) {
-				perror("sendFile");
-				goto cleanup;
+			// se il client ha i permessi per leggere il file, invialo
+			if (!f->O_LOCK || f->owner == fd_c) {
+					if (sendFile(f, fd_c, logFileT) == -1) {
+					perror("sendFile");
+					goto cleanup;
+				}
 			}
 
 			if (enqueue(queue, f) == -1) {
