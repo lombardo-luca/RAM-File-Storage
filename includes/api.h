@@ -1,5 +1,5 @@
 #define CMDSIZE 256
-#define BUFSIZE 10000 // 10KB
+#define BUFSIZE 1000000 // 10KB
 #define MAX_OPEN_FILES 50
 #define O_CREATE 1
 #define O_LOCK 2

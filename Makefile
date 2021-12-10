@@ -59,3 +59,11 @@ cleanall	: clean
 test1	:
 	printf "threadpoolSize:1\nsockName:mysock\nmaxFiles:10000\nmaxSize:128000\nlogFile:logs" > config/config.txt
 	valgrind --leak-check=full ./server & last_pid=$$!; ./script/test1.sh; kill -1 $$last_pid
+
+test2	:
+	printf "threadpoolSize:4\nsockName:mysock\nmaxFiles:10\nmaxSize:1000\nlogFile:logs" > config/config.txt
+	./server & last_pid=$$!; ./script/test2.sh; kill -1 $$last_pid
+
+test3	:
+	printf "threadpoolSize:8\nsockName:mysock\nmaxFiles:100\nmaxSize:32000\nlogFile:logs" > config/config.txt
+	./server & last_pid=$$!; ./script/test3.sh & sleep 30; kill -2 $$last_pid

@@ -1215,7 +1215,7 @@ int receiveNFiles(const char *dirname) {
 			// Apro file di output
 			int fdo;
 			if ((fdo = open(fullpath, O_WRONLY | O_CREAT, 0666)) == -1) {
-				perror("open1");
+				//perror("open1");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -1223,7 +1223,7 @@ int receiveNFiles(const char *dirname) {
 			}
 
 			if (write(fdo, content, size) == -1) {
-				perror("open2");
+				//perror("open2");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -1231,7 +1231,7 @@ int receiveNFiles(const char *dirname) {
 			}
 
 			if (close(fdo) == -1) {
-				perror("open3");
+				//perror("open3");
 				free(content);
 		    	free(filename);
 		    	free(buf);

@@ -20,7 +20,7 @@
 
 #define UNIX_PATH_MAX 108 
 #define CMDSIZE 256
-#define BUFSIZE 10000	// 10KB
+#define BUFSIZE 1000000	// 10KB
 #define LOGLINESIZE 512
 
 // struttura dati che contiene un puntatore al file di logs e delle statistiche sulle operazioni effettuate
@@ -87,7 +87,7 @@ int testQueue(queueT *queue) {
 	printf("queue len = %ld\n", getLen(queue));
 
 	if (enqueue(queue, f1) != 0) {
-		perror("enqueue f1");
+		//perror("enqueue f1");
 		return -1;
 	}
 
@@ -99,7 +99,7 @@ int testQueue(queueT *queue) {
 	}
 
 	if (enqueue(queue, f2) != 0) {
-		perror("enqueue f2");
+		//perror("enqueue f2");
 		return -1;
 	}
 
@@ -177,6 +177,8 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
+	remove("mysock");
+
 	// stampo messaggio d'introduzione
 	printf("File Storage Server avviato.\n");
 	fflush(stdout);
@@ -210,12 +212,14 @@ int main(int argc, char *argv[]) {
 
 			if (threadpoolSize <= 0) {
 				printf("Errore di configurazione: la dimensione della threadPool dev'essere maggiore o uguale a 1.\n");
+				fflush(stdout);
 				free(option);
 				fclose(configFile);	// chiudo il file di configurazione
 				return 1;
 			}
 
 			printf("CONFIG: Dimensione della threadPool = %d\n", threadpoolSize);
+			fflush(stdout);
 		}
 
 		// configuro il nome del socket
@@ -224,6 +228,7 @@ int main(int argc, char *argv[]) {
 			sockName[strcspn(sockName, "\n")] = 0;	// rimuovo la newline dal nome del socket
 
 			printf("CONFIG: Socket name = %s\n", sockName);
+			fflush(stdout);
 		}
 
 		// configuro il numero massimo di file supportati
@@ -232,12 +237,14 @@ int main(int argc, char *argv[]) {
 
 			if (maxFiles <= 0) {
 				printf("Errore di configurazione: il numero massimo di file dev'essere maggiore o uguale a 1.\n");
+				fflush(stdout);
 				free(option);
 				fclose(configFile);	// chiudo il file di configurazione
 				return 1;
 			}
 
 			printf("CONFIG: Numero massimo di file supportati = %zu\n", maxFiles);
+			fflush(stdout);
 		}
 
 		// configuro la dimensione massima supportata (in KB)
@@ -246,12 +253,14 @@ int main(int argc, char *argv[]) {
 
 			if (maxSize <= 0) {
 				printf("Errore di configurazione: la dimensione massima dev'essere maggiore o uguale a 1.\n");
+				fflush(stdout);
 				free(option);
 				fclose(configFile);	// chiudo il file di configurazione
 				return 1;
 			}
 
 			printf("CONFIG: Dimensione massima supportata = %zu KB (%zu Bytes)\n", maxSize/1000, maxSize);
+			fflush(stdout);
 		}
 
 		// configuro il nome del file nel quale verranno scritti i logs
@@ -259,6 +268,7 @@ int main(int argc, char *argv[]) {
 
 			if (strcmp(value, "") == 0) {
 				printf("Errore di configurazione: il nome del logFile non puo' essere vuoto.\n");
+				fflush(stdout);
 				free(option);
 				fclose(configFile);	// chiudo il file di configurazione
 				return 1;
@@ -281,6 +291,7 @@ int main(int argc, char *argv[]) {
 
 		else {
 			printf("Errore di configurazione: opzione non riconosciuta.\n");
+			fflush(stdout);
 			free(option);
 			fclose(configFile);	// chiudo il file di configurazione
 			return 1;
@@ -480,7 +491,7 @@ int main(int argc, char *argv[]) {
 
 							// coda pendenti piena
 							else {
-								perror("coda pendenti piena");
+								//perror("coda pendenti piena");
 							}
 
 							if (t->args) {
@@ -617,7 +628,7 @@ int main(int argc, char *argv[]) {
 
 						// coda pendenti piena
 						else {
-							perror("coda pendenti piena");
+							//perror("coda pendenti piena");
 						}
 
 						if (t->args) {
@@ -641,7 +652,7 @@ int main(int argc, char *argv[]) {
 
 	// stampo il sunto delle operazioni effettuate durante l'esecuzione del server
 	printStats(logFileT);
-	//printf("Sto per distruggere la cache\n");
+
 	// stampo i file contenuti nello storage al momento della chiusura del server
 	if (printQueue(queue) == -1) {
 		perror("printQueue");
@@ -653,8 +664,6 @@ int main(int argc, char *argv[]) {
 		perror("pthread_join.\n");
 		return 1;
 	}
-
-	//fclose(logFileT->file);	
 
 	// chiudo il file di log
 	if (logFileT->file) {
@@ -673,6 +682,7 @@ int main(int argc, char *argv[]) {
 	unlink(sockName);
 
 	return 0;
+	//exit(EXIT_SUCCESS);
 }
 
 static void serverThread(void *par) {
@@ -942,6 +952,7 @@ void printStats(logT *logFileT) {
 	printf("Numero massimo di file memorizzati nel server: %zu\n", logFileT->maxFiles);
 	printf("Dimensione massima raggiunta dal file storage: %lf MB\n", res);
 	printf("Numero di capacity misses nella cache: %ld\n", logFileT->cacheMiss);
+	fflush(stdout);
 
 	pthread_mutex_unlock(&logFileT->m);	
 }
@@ -1111,7 +1122,7 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 		}
 
 		else if (enqueue(queue, f) != 0) {
-			perror("enqueue");
+			//perror("enqueue");
 			memcpy(res, er, 3);
 		}
 
@@ -1124,7 +1135,7 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 	// il client vuole aprire un file gia' esistente
 	else {
 		if (openFileInQueue(queue, filepath, O_LOCK, fd_c) == -1) {
-			perror("openFileInQueue");
+			//perror("openFileInQueue");
 			memcpy(res, er, 3);
 		}
 	}
@@ -1387,7 +1398,7 @@ void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 			}
 
 			if (enqueue(queue, f) == -1) {
-				perror("enqueue");
+				//perror("enqueue");
 				goto cleanup;
 			}
 
@@ -1861,7 +1872,7 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 
 	// resetto il flag O_LOCK sul file
 	if (unlockFileInQueue(queue, filepath, fd_c) != 0) {
-		perror("unlockFileInQueue");
+		//perror("unlockFileInQueue");
 		memcpy(res, er, 3);
 		goto send;
 	}
@@ -1963,7 +1974,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 	if (found) {
 		// la funzione chiamata controlla se il client ha i permessi per poter chiudere il file
 		if (closeFileInQueue(queue, filepath, fd_c) == -1) {
-			perror("closeFileInQueue");
+			//perror("closeFileInQueue");
 			memcpy(res, er, 3);
 		}
 
@@ -2182,7 +2193,7 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	//fflush(stdout);
 	memset(buf, 0, BUFSIZE);
 	memcpy(buf, f->filepath, strlen(f->filepath)+1);
-	printf("memcpy fatta\n");
+	//printf("memcpy fatta\n");
 	fflush(stdout);
 	if (writen(fd_c, buf, BUFSIZE) == -1) {
 		perror("writen");

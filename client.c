@@ -202,8 +202,8 @@ int main(int argc, char* argv[]) {
 
 	struct sigaction siga;
 
-	printf("File Storage Client avviato.\n");
-	fflush(stdout);
+	//printf("File Storage Client avviato.\n");
+	//fflush(stdout);
 
 	if (argc < 2) {
 		printf("Usage: ecc... Nessun argomento! TO-DO\n");
@@ -684,7 +684,9 @@ int execute(cmdT *cmdList, int print) {
 		}
 	}
 
-	printf("\n");
+	if (print) {
+		printf("\n");
+	}
 
 	if (strcmp(globalSocket, "") != 0) {
 		closeConnection(globalSocket);
@@ -978,7 +980,9 @@ int cmd_r(const char *filelist, char *directory, int print) {
 		if (ok && readFile(token, &buf, &size) == -1) {
 			ok = 0;
 		}
-		printInfo(1);
+		if (print) {
+			printInfo(1);
+		}
 
 		if (ok && print) {
 			printf("Dimensione: %zu B\t", size);
@@ -1007,8 +1011,10 @@ int cmd_r(const char *filelist, char *directory, int print) {
 			}
 		}
 
-		printf("\n");
-		fflush(stdout);
+		if (print) {
+			printf("\n");
+			fflush(stdout);
+		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
@@ -1130,8 +1136,10 @@ int cmd_l(const char *filelist, int print) {
 			}
 		}
 
-		printf("\n");
-		fflush(stdout);
+		if (print) {
+			printf("\n");
+			fflush(stdout);
+		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
@@ -1178,8 +1186,10 @@ int cmd_u(const char *filelist, int print) {
 			}
 		}
 
-		printf("\n");
-		fflush(stdout);
+		if (print) {
+			printf("\n");
+			fflush(stdout);
+		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
@@ -1233,8 +1243,10 @@ int cmd_c(const char *filelist, int print) {
 			}
 		}
 
-		printf("\n");
-		fflush(stdout);
+		if (print) {
+			printf("\n");
+			fflush(stdout);
+		}
 
 		token = strtok_r(NULL, ",", &save);
 	}
