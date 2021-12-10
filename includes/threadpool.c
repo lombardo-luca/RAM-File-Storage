@@ -72,7 +72,7 @@ static void *workerpool_thread(void *threadpool) {
         return NULL;                               
     }
 
-    fprintf(stderr, "Thread %d exiting...\n", myid);
+    //fprintf(stderr, "Thread %d exiting...\n", myid);
     return NULL;
 }
 

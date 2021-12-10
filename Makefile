@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 CC			=  gcc
 AR          =  ar
 CFLAGS	    += -Wall -Wno-pointer-arith -pedantic -g
@@ -11,7 +13,7 @@ LIBS        = -pthread
 # aggiungere qui altri targets
 TARGETS		= server client
 
-.PHONY: all clean cleanall
+.PHONY: all clean cleanall test1
 .SUFFIXES: .c .h
 
 %.o: %.c
@@ -53,3 +55,7 @@ clean		:
 	rm -f $(TARGETS)
 cleanall	: clean
 	\rm -f *.o *~ *.a ./mysock
+
+test1	:
+	printf "threadpoolSize:1\nsockName:mysock\nmaxFiles:10000\nmaxSize:128000\nlogFile:logs" > config/config.txt
+	valgrind --leak-check=full ./server & last_pid=$$!; ./script/test1.sh; kill -1 $$last_pid

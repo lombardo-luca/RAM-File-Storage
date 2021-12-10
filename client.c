@@ -862,7 +862,6 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 		}
 
 		// creo il file in modalita' locked
-		printf("Inviio flags = %d\n", O_CREATE | O_LOCK);
 		if (openFile(token, O_CREATE | O_LOCK) == -1) {
 			/*
 			if (strcmp(strerror(errno), "File exists") == 0) {

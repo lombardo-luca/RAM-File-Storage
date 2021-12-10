@@ -124,7 +124,7 @@ int enqueue(queueT *queue, fileT* data) {
         return -1;
     }
 
-    printf("enqueue: voglio aggiungere il file %s di dimensione %ld\n", data->filepath, data->size);
+    //printf("enqueue: voglio aggiungere il file %s di dimensione %ld\n", data->filepath, data->size);
 
     // se non c'è abbastanza spazio, errore
     if (queue->size + data->size > queue->maxSize) {
@@ -164,7 +164,7 @@ int enqueue(queueT *queue, fileT* data) {
     queue->len++;
     queue->size += data->size;
 
-    printf("enqueue: aggiunto.\n");
+    //printf("enqueue: aggiunto.\n");
 
     pthread_mutex_unlock(&queue->m);
     return 0;
@@ -189,7 +189,7 @@ void voiDequeue(queueT *queue) {
     nodeT *temp = NULL;
     temp = queue->head;
 
-    printf("voiDequeue: rimuovo il file %s di dimensione %ld\n", (temp->data)->filepath, (temp->data)->size);
+    //printf("voiDequeue: rimuovo il file %s di dimensione %ld\n", (temp->data)->filepath, (temp->data)->size);
 
     queue->head = (queue->head)->next;
 
@@ -242,10 +242,6 @@ fileT* dequeue(queueT *queue) {
     }
     */
 
-    if ((queue->head)->data == NULL) {
-        perror("DEBUG WTF???");
-    }
-
     fileT *data = (queue->head)->data;
 
     nodeT *temp = NULL;
@@ -255,10 +251,6 @@ fileT* dequeue(queueT *queue) {
     if (queue->head == NULL) {
         queue->tail = NULL;
     }
-
-    if (data->filepath == NULL) {
-        printf("DEBUG WTF?");
-    }
    
     queue->len--;
     queue->size -= data->size;
@@ -267,7 +259,7 @@ fileT* dequeue(queueT *queue) {
     //destroyFile(temp->data);
     free(temp);
 
-    printf("dequeue: ho rimosso il file %s di dimensione %ld\n", data->filepath, data->size);
+    //printf("dequeue: ho rimosso il file %s di dimensione %ld\n", data->filepath, data->size);
 
     pthread_mutex_unlock(&queue->m);
     return data;
@@ -432,23 +424,13 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
     int found = 0;
     nodeT *temp = queue->head;
 
-    if (!(temp->data)->filepath) {
-        printf("DEBUG Errore greve1!\n");
-        fflush(stdout);
-    }
-
-    if (!filepath) {
-        printf("DEBUG Errore greve2!\n");
-        fflush(stdout);
-    }
-
     // scorro tutta la coda
     while (temp && !found) {
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             // ho trovato il file che cercavo
             found = 1;
 
-            printf("openFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+            //printf("openFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != client) {
@@ -503,7 +485,7 @@ int closeFileInQueue(queueT *queue, char *filepath, int client) {
             // ho trovato il file che cercavo
             found = 1;
 
-            printf("closeFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+            //printf("closeFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != client) {
@@ -562,7 +544,7 @@ int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, 
             // ho trovato il file che cercavo
             found = 1;
 
-            printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+            //printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // controllo se il client ha i permessi per scrivere sul file
             if ((temp->data)->open == 0 || ((temp->data)->O_LOCK && (temp->data)->owner != client)) {
@@ -631,7 +613,7 @@ int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size,
             // ho trovato il file che cercavo
             found = 1;
 
-            printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
+            //printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // controllo se il client ha i permessi per scrivere sul file
             if ((temp->data)->open == 0 || ((temp->data)->O_LOCK && (temp->data)->owner != client)) {
@@ -674,8 +656,6 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
         return -1;
     }
 
-    printf("DEBUG sono dentro la RemoveFile\n");
-
     pthread_mutex_lock(&queue->m);
 
     // se la coda e' vuota, errore
@@ -704,8 +684,6 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
 
             // se il file da rimuovere e' il primo elemento della coda
             if (temp == prec) {
-                printf("DEBUG Rimuovo il primo elemento\n");
-                fflush(stdout);
                 queue->head = temp->next;
 
                 if (!temp->next) {
@@ -725,7 +703,7 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
             queue->size -= (temp->data)->size;
             assert(queue->len >= 0);
 
-            printf("DEBUG ho rimosso un elemento, queue->Len = %zu\n", queue->len);
+            //printf("DEBUG ho rimosso un elemento, queue->Len = %zu\n", queue->len);
             
             // libero la memoria
             destroyFile(temp->data);
@@ -734,7 +712,6 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
             break;
         }
 
-        printf("DEBUG Scorro la coda...\n");
         if (prec != temp) {
              prec = prec->next;
         }
@@ -872,7 +849,7 @@ void destroyQueue(queueT *queue) {
     if (queue) {
          // se la coda non è vuota, svuotala e libera la memoria per ogni elemento
         while (queue->len > 0) {
-            printf("DestroyQueue: queue len = %ld\n", queue->len);
+            //printf("DestroyQueue: queue len = %ld\n", queue->len);
 
             errno = 0;
             voiDequeue(queue);
