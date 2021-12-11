@@ -951,8 +951,26 @@ void printStats(logT *logFileT) {
 
 	printf("Numero massimo di file memorizzati nel server: %zu\n", logFileT->maxFiles);
 	printf("Dimensione massima raggiunta dal file storage: %lf MB\n", res);
-	printf("Numero di capacity misses nella cache: %ld\n", logFileT->cacheMiss);
+	printf("Numero di capacity misses nella cache: %zu\n", logFileT->cacheMiss);
 	fflush(stdout);
+
+	// scrivo sul logFile
+	char statsStr[512] = "Dimensione massima raggiunta dallo storage: ";
+	char statsSizeStr[64];
+	snprintf(statsSizeStr, sizeof(double)+1, "%lf", res);
+	strncat(statsStr, statsSizeStr, strlen(statsSizeStr)+1);
+	strncat(statsStr, " MB.\nNumero massimo di file memorizzati nel server: ", 128);
+	char statsFilesStr[64];
+	snprintf(statsFilesStr, sizeof(size_t)+1, "%zu", logFileT->maxFiles);
+	strncat(statsStr, statsFilesStr, strlen(statsFilesStr)+1);
+	strncat(statsStr, ".\nNumero di capacity misses nella cache: ", 128);
+	char statsMissStr[64];
+	snprintf(statsMissStr, sizeof(size_t)+1, "%zu", logFileT->cacheMiss);
+	strncat(statsStr, statsMissStr, strlen(statsMissStr)+1);
+	strncat(statsStr, ".\n", 3);
+	if (fwrite(statsStr, 1, strlen(statsStr)+1, logFileT->file) == -1) {
+		perror("fwrite");
+	}
 
 	pthread_mutex_unlock(&logFileT->m);	
 }
@@ -1157,9 +1175,13 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 			// scrivo sul logFile
 			char openFileStr[512] = "Il client ";
 			char openFileFdStr[32];
+			char openFileFlagsStr[12];
 			snprintf(openFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			snprintf(openFileFlagsStr, sizeof(flags)+1, "%d", flags);
 			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
-			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
+			strncat(openFileStr, " ha richiesto una openFile (flags = ", 64);
+			strncat(openFileStr, openFileFlagsStr, strlen(openFileFlagsStr)+1);
+			strncat(openFileStr, ") sul file: ", 32);
 			strncat(openFileStr, filepath, strlen(filepath)+1);
 			strncat(openFileStr, ", che ha causato un capacity miss. Il file espulso e': ", 64);
 			strncat(openFileStr, espulso->filepath, strlen(espulso->filepath)+1);
@@ -1180,9 +1202,13 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 			// scrivo sul logFile
 			char openFileStr[512] = "Il client ";
 			char openFileFdStr[32];
+			char openFileFlagsStr[12];
 			snprintf(openFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			snprintf(openFileFlagsStr, sizeof(flags)+1, "%d", flags);
 			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
-			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
+			strncat(openFileStr, " ha richiesto una openFile (flags = ", 64);
+			strncat(openFileStr, openFileFlagsStr, strlen(openFileFlagsStr)+1);
+			strncat(openFileStr, ") sul file: ", 32);
 			strncat(openFileStr, filepath, strlen(filepath)+1);
 			strncat(openFileStr, ", terminata con errore.\n", 32);
 			if (writeLog(logFileT, openFileStr) == -1) {
@@ -1201,9 +1227,13 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 			// scrivo sul logFile
 			char openFileStr[512] = "Il client ";
 			char openFileFdStr[32];
+			char openFileFlagsStr[12];
 			snprintf(openFileFdStr, sizeof(fd_c)+1, "%ld", fd_c);
+			snprintf(openFileFlagsStr, sizeof(flags)+1, "%d", flags);
 			strncat(openFileStr, openFileFdStr, strlen(openFileFdStr)+1);
-			strncat(openFileStr, " ha richiesto una openFile sul file: ", 64);
+			strncat(openFileStr, " ha richiesto una openFile (flags = ", 64);
+			strncat(openFileStr, openFileFlagsStr, strlen(openFileFlagsStr)+1);
+			strncat(openFileStr, ") sul file: ", 32);
 			strncat(openFileStr, filepath, strlen(filepath)+1);
 			strncat(openFileStr, ", terminata con successo.\n", 32);
 			if (writeLog(logFileT, openFileStr) == -1) {
@@ -1420,12 +1450,16 @@ void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 		char readNFilesStr[512] = "Il client ";
 		char readNFilesFdStr[32];
 		char readNFilesNStr[32];
+		char readNFilesIStr[32];
 		snprintf(readNFilesFdStr, sizeof(fd_c)+1, "%ld", fd_c);
 		strncat(readNFilesStr, readNFilesFdStr, strlen(readNFilesFdStr)+1);
 		strncat(readNFilesStr, " ha richiesto una readNFiles con n = ", 64);
 		snprintf(readNFilesNStr, sizeof(n)+1, "%d", oldN);
 		strncat(readNFilesStr, readNFilesNStr, strlen(readNFilesNStr) + 1);
-		strncat(readNFilesStr, ", terminata con successo.\n", 48);
+		strncat(readNFilesStr, ", terminata con successo. File letti = ", 64);
+		snprintf(readNFilesIStr, sizeof(i)+1, "%d", i);
+		strncat(readNFilesStr, readNFilesIStr, strlen(readNFilesIStr) + 1);
+		strncat(readNFilesStr, ".\n", 64);
 		if (writeLog(logFileT, readNFilesStr) == -1) {
 			perror("writeLog");
 		}	
