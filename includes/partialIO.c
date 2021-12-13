@@ -31,7 +31,7 @@ readn(int fd, void *ptr, size_t n) {
         else break; // error, return amount read so far 
      } else if (nread == 0) break; // EOF 
      nleft -= nread;
-     ptr   += nread;
+     ptr   +=  nread;
    }
    return(n - nleft); // return >= 0 
 }

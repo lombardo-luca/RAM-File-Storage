@@ -222,8 +222,6 @@ int main(int argc, char* argv[]) {
 	int f = 0, h = 0, p = 0;	// variabili per tenere traccia dei comandi che possono essere utilizzati solo una volta
 	char args[256];
 
-	//opterr = 0;
-
 	// creo la lista di comandi
 	cmdT *cmdList = NULL;
 	cmdList = calloc(1, sizeof(cmdT));
@@ -1223,6 +1221,7 @@ int cmd_c(const char *filelist, int print) {
 			fflush(stdout);
 		}
 
+		// acquisisci la lock, altrimenti la rimozione del file non e' possibile
 		if (lockFile(token) == -1) {
 			if (print) {
 				printf("Esito: errore");

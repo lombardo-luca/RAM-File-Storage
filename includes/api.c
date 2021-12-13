@@ -124,6 +124,9 @@ int closeConnection(const char* sockname) {
 		return -1;
 	}
 
+	printf("Connessione chiusa.\n");
+	fflush(stdout);
+
 	// resetto la variabile globale che mantiene il nome del socket
 	strncpy(socketName, "", SOCKNAME_MAX);
 
@@ -177,30 +180,32 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
-	//printf("openFile: invio %s!\n", cmd);
+	printf("openFile: invio %s!\n", cmd);
 
 	if (writen(fd_skt, cmd, 256) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	//printf("openFile: fatta la writen\n");
+	printf("openFile: fatta la writen\n");
 
 	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
+		printf("r = %d\n", r);
+		fflush(stdout);
 		free(buf);
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	//printf("openFile: fatta la readn\n");
+	printf("openFile: fatta la readn\n");
 
 	char res[3];
 	memcpy(res, buf, 3);
 
-	//printf("openFile: ho ricevuto: %s!\n", res);
+	printf("openFile: ho ricevuto: %s!\n", res);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -441,8 +446,8 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	//printf("Sono dentro la writeFile\n");
-	//fflush(stdout);
+	printf("Sono dentro la writeFile\n");
+	fflush(stdout);
 
 	void *buf = malloc(BUFSIZE);
 	void *content = malloc(BUFSIZE);
@@ -458,8 +463,8 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	//printf("provo la read...\n");
-	//fflush(stdout);
+	printf("provo la read...\n");
+	fflush(stdout);
 	while ((lung = read(fdi, content, BUFSIZE)) > 0) {
 		size += lung;
 	}
@@ -498,8 +503,8 @@ int writeFile(const char* pathname, const char* dirname) {
 	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
-	//printf("writeFile: invio %s!\n", cmd);
-	//fflush(stdout);
+	printf("writeFile: invio %s!\n", cmd);
+	fflush(stdout);
 
 	if (writen(fd_skt, cmd, 256) == -1) {
 		free(buf);
@@ -520,8 +525,8 @@ int writeFile(const char* pathname, const char* dirname) {
 	char res[3];
 	memcpy(res, buf, 3);
 
-	//printf("writeFile: ho ricevuto: %s!\n", res);
-	//fflush(stdout);
+	printf("writeFile: ho ricevuto: %s!\n", res);
+	fflush(stdout);
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -621,8 +626,8 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		size2 = size;
 	}
 
-	//printf("Sono dentro la appendToFile\n");
-	//fflush(stdout);
+	printf("Sono dentro la appendToFile\n");
+	fflush(stdout);
 
 	void *readBuf = malloc(BUFSIZE);
 	char cmd[256] = "";
@@ -637,19 +642,19 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
-	//printf("appendToFile: invio %s!\n", cmd);
-	//fflush(stdout);
+	printf("appendToFile: invio %s!\n", cmd);
+	fflush(stdout);
 
-	//printf("appendToFile: aspetto la writen...\n");
-	//fflush(stdout);
+	printf("appendToFile: aspetto la writen...\n");
+	fflush(stdout);
 	if (writen(fd_skt, cmd, 256) == -1) {
 		free(readBuf);
 		errno = EREMOTEIO;
 		return -1;
 	}
 
-	//printf("appendToFile: aspetto la readn...\n");
-	//fflush(stdout);
+	printf("appendToFile: aspetto la readn...\n");
+	fflush(stdout);
 	// ricevo la risposta dal server
 	int r = readn(fd_skt, readBuf, 3);
 	if (r == -1 || r == 0) {
@@ -1008,8 +1013,8 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	strncpy(filepath, buf, BUFSIZE);
-	//printf("Ho ricevuto filepath = %s\n", filepath);
-	//fflush(stdout);
+	printf("Ho ricevuto filepath = %s\n", filepath);
+	fflush(stdout);
 
 	// ...poi la dimensione del file...
 	memset(buf, 0, BUFSIZE);
@@ -1020,8 +1025,8 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	memcpy(&size, buf, sizeof(size_t));
-	//printf("Ho ricevuto size = %ld\n", size);
-	//fflush(stdout);
+	printf("Ho ricevuto size = %ld\n", size);
+	fflush(stdout);
 
 	if (sizeA) {
 		*sizeA = size;
@@ -1410,7 +1415,8 @@ int removeOpenFile(const char *pathname) {
 	}
 
 	// altrimenti, scorri tutta la lista
-	while (temp) {
+	// TO-DO ho cambiato temp in temp->next, controllare che funzioni tutto
+	while (temp->next) {
 		prec = temp;
 		temp = temp->next;
 
