@@ -16,6 +16,7 @@
 
 #define UNIX_PATH_MAX 108 
 #define SOCKNAME_MAX 100
+//#define DEBUG
 
 typedef struct struct_of {		
 	char *filename;				// nome del file
@@ -29,8 +30,8 @@ static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi 
 //static char *openFiles[MAX_OPEN_FILES];	// array dei file attualmente aperti
 static ofT *openFiles = NULL;				// lista dei file attualmente aperti
 static int numOfFiles = 0;					// numero di file attualmente aperti
-static char writingDirectory[256] = ""; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
-static char readingDirectory[256] = "";		// cartella dove scrivere i file letti dal server
+static char *writingDirectory = NULL; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
+static char *readingDirectory= NULL;		// cartella dove scrivere i file letti dal server
 
 /**
  * se l'ultima operazione e' stata una openFile(O_CREATE | O_LOCK), 
@@ -124,11 +125,19 @@ int closeConnection(const char* sockname) {
 		return -1;
 	}
 
-	printf("Connessione chiusa.\n");
-	fflush(stdout);
+	//printf("Connessione chiusa.\n");
+	//fflush(stdout);
 
 	// resetto la variabile globale che mantiene il nome del socket
 	strncpy(socketName, "", SOCKNAME_MAX);
+
+	if (writingDirectory) {
+		free(writingDirectory);
+	}
+
+	if (readingDirectory) {
+		free(readingDirectory);
+	}
 
 	return 0;
 }
@@ -180,32 +189,46 @@ int openFile(const char* pathname, int flags) {
 	strncat(cmd, flagStr, strlen(flagStr) + 1);
 
 	// invio il comando al server
+	#ifdef DEBUG
 	printf("openFile: invio %s!\n", cmd);
+	fflush(stdout);
+	#endif 
 
 	if (writen(fd_skt, cmd, 256) == -1) {
 		errno = EREMOTEIO;
 		return -1;
 	}
 
+	#ifdef DEBUG
 	printf("openFile: fatta la writen\n");
+	fflush(stdout);
+	#endif
 
 	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
+		#ifdef DEBUG
 		printf("r = %d\n", r);
 		fflush(stdout);
+		#endif
 		free(buf);
 		errno = EREMOTEIO;
 		return -1;
 	}
 
+	#ifdef DEBUG
 	printf("openFile: fatta la readn\n");
+	fflush(stdout);
+	#endif
 
 	char res[3];
 	memcpy(res, buf, 3);
 
+	#ifdef DEBUG
 	printf("openFile: ho ricevuto: %s!\n", res);
+	fflush(stdout);
+	#endif
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -237,7 +260,7 @@ int openFile(const char* pathname, int flags) {
 			return -1;
 		}
 
-		if (print && strcmp(writingDirectory, "") != 0) {
+		if (print && writingDirectory) {
 			printf("\tIl file espulso e' stato scritto nella cartella %s.\n", writingDirectory);
 		}
 
@@ -348,12 +371,6 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 int readNFiles(int N, const char* dirname) {
 	strncpy(createdAndLocked, "", 2);
 
-	// controllo la validita' dell'argomento
-	if (!dirname) {
-		errno = EINVAL;
-		return -1;
-	}
-
 	// controllo che il client sia connesso al server
 	if (strcmp(socketName, "") == 0) {
 		errno = ENOTCONN;
@@ -446,8 +463,10 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
+	#ifdef DEBUG
 	printf("Sono dentro la writeFile\n");
 	fflush(stdout);
+	#endif
 
 	void *buf = malloc(BUFSIZE);
 	void *content = malloc(BUFSIZE);
@@ -463,8 +482,10 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
+	#ifdef DEBUG
 	printf("provo la read...\n");
 	fflush(stdout);
+	#endif
 	while ((lung = read(fdi, content, BUFSIZE)) > 0) {
 		size += lung;
 	}
@@ -503,8 +524,10 @@ int writeFile(const char* pathname, const char* dirname) {
 	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
+	#ifdef DEBUG
 	printf("writeFile: invio %s!\n", cmd);
 	fflush(stdout);
+	#endif
 
 	if (writen(fd_skt, cmd, 256) == -1) {
 		free(buf);
@@ -525,8 +548,10 @@ int writeFile(const char* pathname, const char* dirname) {
 	char res[3];
 	memcpy(res, buf, 3);
 
+	#ifdef DEBUG
 	printf("writeFile: ho ricevuto: %s!\n", res);
 	fflush(stdout);
+	#endif
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -560,7 +585,7 @@ int writeFile(const char* pathname, const char* dirname) {
 			return -1;
 		}
 
-		if (print && dirname && strcmp(dirname, "") != 0) {
+		if (print && dirname) {
 			printf("\tI file espulsi sono stati scritti nella cartella %s.\n", dirname);
 		}
 
@@ -626,8 +651,10 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		size2 = size;
 	}
 
+	#ifdef DEBUG
 	printf("Sono dentro la appendToFile\n");
 	fflush(stdout);
+	#endif
 
 	void *readBuf = malloc(BUFSIZE);
 	char cmd[256] = "";
@@ -642,19 +669,22 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	strncat(cmd, sizeStr, strlen(sizeStr) + 1);
 
 	// invio il comando al server
+	#ifdef DEBUG
 	printf("appendToFile: invio %s!\n", cmd);
-	fflush(stdout);
-
 	printf("appendToFile: aspetto la writen...\n");
 	fflush(stdout);
+	#endif
+
 	if (writen(fd_skt, cmd, 256) == -1) {
 		free(readBuf);
 		errno = EREMOTEIO;
 		return -1;
 	}
 
+	#ifdef DEBUG
 	printf("appendToFile: aspetto la readn...\n");
 	fflush(stdout);
+	#endif
 	// ricevo la risposta dal server
 	int r = readn(fd_skt, readBuf, 3);
 	if (r == -1 || r == 0) {
@@ -1013,8 +1043,10 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	strncpy(filepath, buf, BUFSIZE);
+	#ifdef DEBUG
 	printf("Ho ricevuto filepath = %s\n", filepath);
 	fflush(stdout);
+	#endif
 
 	// ...poi la dimensione del file...
 	memset(buf, 0, BUFSIZE);
@@ -1025,8 +1057,10 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	memcpy(&size, buf, sizeof(size_t));
+	#ifdef DEBUG
 	printf("Ho ricevuto size = %ld\n", size);
 	fflush(stdout);
+	#endif
 
 	if (sizeA) {
 		*sizeA = size;
@@ -1054,7 +1088,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 		fflush(stdout);
 	}
 
-	if (strcmp(dir, "") != 0) {
+	if (dirname) {
 		//printf("SCRITTURA SU FILE\n");
 		memset(filename, '\0', 256);
 		strncpy(filename, filepath, strlen(filepath)+1);
@@ -1195,7 +1229,7 @@ int receiveNFiles(const char *dirname) {
 		}
 
 		// se il client ha specificato una cartella, vi scrivo dentro il file appena ricevuto
-		if (strcmp(dir, "") != 0) {
+		if (dirname) {
 			memset(filename, '\0', 256);
 			strncpy(filename, filepath, strlen(filepath)+1);
 			char fullpath[512] = "";
@@ -1317,12 +1351,14 @@ int setDirectory(char* Dir, int rw) {
 	}
 
 	if (rw == 1) {
-		memset(writingDirectory, '\0', 256);
+		free(writingDirectory);
+		writingDirectory = malloc(strlen(Dir)+1);
 		strncpy(writingDirectory, Dir, strlen(Dir)+1);
 	}
 
 	else {
-		memset(readingDirectory, '\0', 256);
+		free(readingDirectory);
+		readingDirectory = malloc(strlen(Dir)+1);
 		strncpy(readingDirectory, Dir, strlen(Dir)+1);
 	}
 

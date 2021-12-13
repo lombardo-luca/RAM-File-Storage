@@ -22,6 +22,7 @@
 #define CMDSIZE 256
 #define BUFSIZE 1000000	// 10KB
 #define LOGLINESIZE 512
+//#define DEBUG
 
 // struttura dati che contiene un puntatore al file di logs e delle statistiche sulle operazioni effettuate
 typedef struct struct_log {
@@ -149,6 +150,7 @@ int main(int argc, char *argv[]) {
 	char sockName[256] = "./mysock";		// nome del socket
 	char logName[256] = "logs/log.txt";		// nome del file di log
 	int threadpoolSize = 1;					// numero di thread workers nella threadPool
+	int pendingQueueSize = 1;				// dimensione della coda d'attesa della threadPool
 	size_t maxFiles = 1;					// massimo numero di file supportati
 	size_t maxSize = 1;						// massima dimensione supportata (in bytes)
 	int sigPipe[2], requestPipe[2];
@@ -235,6 +237,22 @@ int main(int argc, char *argv[]) {
 			fflush(stdout);
 		}
 
+		// configuro la dimensione della coda d'attesa della threadpool
+		else if (strcmp("pendingQueueSize", option) == 0) {
+			pendingQueueSize = strtol(value, NULL, 0);
+
+			if (pendingQueueSize <= 0) {
+				printf("Errore di configurazione: la dimensione della pendingQueue dev'essere maggiore o uguale a 1.\n");
+				fflush(stdout);
+				free(option);
+				fclose(configFile);	// chiudo il file di configurazione
+				return 1;
+			}
+
+			printf("CONFIG: Dimensione della pendingQueue = %d\n", pendingQueueSize);
+			fflush(stdout);
+		}
+
 		// configuro il nome del socket
 		else if (strcmp("sockName", option) == 0) {
 			strncpy(sockName, value, 256);
@@ -303,7 +321,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		else {
-			printf("Errore di configurazione: opzione non riconosciuta.\n");
+			printf("Errore di configurazione: opzione '%s' non riconosciuta.\n", option);
 			fflush(stdout);
 			free(option);
 			fclose(configFile);	// chiudo il file di configurazione
@@ -406,7 +424,7 @@ int main(int argc, char *argv[]) {
 
 	// creo la threadpool
 	threadpool_t *pool = NULL;
-	pool = createThreadPool(threadpoolSize, threadpoolSize*10);
+	pool = createThreadPool(threadpoolSize, pendingQueueSize);
 
 	if (!pool) {
 		perror("createThreadPool.\n");
@@ -469,7 +487,10 @@ int main(int argc, char *argv[]) {
 								return 1;
 							}
 
+							#ifdef DEBUG
 							printf("Nuovo client connesso. fd_c = %d\n", fd_c);
+							fflush(stdout);
+							#endif
 							// Scrivo sul logFile
 							char newConStr[25] = "Nuovo client: ";
 							char fdStr[128];
@@ -498,7 +519,10 @@ int main(int argc, char *argv[]) {
 
 							// task aggiunto alla pool con successo
 							if (r == 0) {
+								#ifdef DEBUG
 								printf("Task aggiunto alla pool da una nuove connessione: %d\n", fd_c);
+								fflush(stdout);
+								#endif
 								numberOfConnections++;
 								continue;
 							}
@@ -525,7 +549,10 @@ int main(int argc, char *argv[]) {
 						}
 
 						else {
+							#ifdef DEBUG
 							printf("Nuova connessione rifiutata: il server è in fase di terminazione.\n");
+							fflush(stdout);
+							#endif
 							FD_CLR(fd, &set);
 							close(fd);
 						}
@@ -544,7 +571,10 @@ int main(int argc, char *argv[]) {
 
 						// se il worker thread ha chiuso la connessione...
 						if (fdr == -1) {
+							#ifdef DEBUG
 							printf("Il worker thread ha chiuso la connessione con un client.\n");
+							fflush(stdout);
+							#endif
 							/*
 							FD_CLR(fdr, &set);
 							if (fdr == fd_max) {
@@ -553,10 +583,16 @@ int main(int argc, char *argv[]) {
 							*/
 
 							numberOfConnections--;
+							#ifdef DEBUG
 							printf("numberOfConnections = %d\n", numberOfConnections);
+							fflush(stdout);
+							#endif
 							// ...controllo se devo terminare il server
 							if (stopIncomingConnections && numberOfConnections <= 0) {
+								#ifdef DEBUG
 								printf("Non ci sono altri client connessi, termino...\n");
+								fflush(stdout);
+								#endif
 								quit = 1;
 								pthread_cancel(st);	// termino il signalThread
 							}
@@ -564,15 +600,21 @@ int main(int argc, char *argv[]) {
 							break;
 						}
 
+						#ifdef DEBUG
 						printf("Una richiesta singola del client %d e' stata servita.\n", fdr);
 						printf("Riaggiungo il client %d al set.\n", fdr);
+						fflush(stdout);
+						#endif
 						// altrimenti riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
 						FD_SET(fdr, &set);
 
 						
 						if (fdr > fd_max) {
 							fd_max = fdr;
+							#ifdef DEBUG
 							printf("Aggiorno fd_max = %d\n", fdr);
+							fflush(stdout);
+							#endif
 						}
 						
 
@@ -591,10 +633,13 @@ int main(int argc, char *argv[]) {
 						}
 
 						if (code == 0) {
-							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
 							stopIncomingConnections = 1;
 
+							#ifdef DEBUG
+							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
 							printf("numberOfConnections = %d\n", numberOfConnections);
+							fflush(stdout);
+							#endif
 
 							if (numberOfConnections == 0) {
 								quit = 1;
@@ -603,7 +648,10 @@ int main(int argc, char *argv[]) {
 						}
 
 						else if (code == 1) {
+							#ifdef DEBUG
 							printf("Ricevuto un segnale di terminazione immediata.\n");
+							fflush(stdout);
+							#endif
 							quit = 1;
 						}
 
@@ -790,8 +838,10 @@ static void serverThread(void *par) {
 	}
 
 	if (n == 0 || strcmp(buf, "quit\n") == 0) {
+		#ifdef DEBUG
 		printf("SERVER THREAD: chiudo la connessione col client\n");
 		fflush(stdout);
+		#endif
 		close(fd_c);
 
 		int close = -1;
@@ -816,12 +866,16 @@ static void serverThread(void *par) {
 		goto cleanup;
 	}
 
+	#ifdef DEBUG
 	printf("SERVER THREAD: ho ricevuto %s! dal client %ld\n", buf, fd_c);
 	fflush(stdout);
+	#endif
 
 	if (parser(buf, queue, fd_c, logFileT, lock, lockCond, waiting) == -1) {
+		#ifdef DEBUG
 		printf("SERVER THREAD: errore parser.\n");
 		fflush(stdout);
+		#endif
 		goto cleanup;
 	}
 
@@ -877,8 +931,10 @@ static void* sigThread(void *par) {
 			return (void*) 1;
 		}
 
+		#ifdef DEBUG
 		printf("Ho ricevuto segnale %d\n", sig);
 		fflush(stdout);
+		#endif
 
 		switch (sig) {
 			case SIGHUP:
@@ -1074,8 +1130,10 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mute
 
 	// comando non riconosciuto
 	else {
+		#ifdef DEBUG
 		printf("PARSER: comando non riconosciuto.\n");
 		fflush(stdout);
+		#endif
 		return -1;
 	}
 
@@ -1532,13 +1590,17 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 		}
 	}
 
+	#ifdef DEBUG
 	printf("writeFile: found = %d, append = %d\n", found, append);	
 	fflush(stdout);
+	#endif
 
 	// il file e' presente nel server
 	if (found) {
+		#ifdef DEBUG
 		printf("Il file e' locked? %d Owner = %d Client = %ld\n", findF->O_LOCK, findF->owner, fd_c);
 		fflush(stdout);
+		#endif
 
 		/**
 		 * controllo se il client ha i permessi per scrivere sul file:
@@ -1554,8 +1616,10 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 
 		// se non c'e' abbastanza spazio nella cache, espelli un file secondo la politica FIFO
 		if (getSize(queue) + size > queue->maxSize) {
+			#ifdef DEBUG
 			printf("writeFile: cache piena (queue->size = %zu), espello un elemento.\n", getSize(queue));
 			fflush(stdout);
+			#endif
 			espulso = dequeue(queue);
 
 			if (espulso == NULL) {
@@ -1630,8 +1694,10 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 					goto cleanup;
 				}
 
+				#ifdef DEBUG
 				printf("writeFile: cache ancora piena (queue->size = %ld), espello un elemento.\n", getSize(queue));
 				fflush(stdout);
+				#endif
 
 				// libero la memoria del file appena mandato
 				if (espulso) {
@@ -1798,8 +1864,10 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 	if (openFileInQueue(queue, filepath, 1, fd_c) == -1) {
 		// se il file e' gia' stato lockato da un client diverso, inserisci il client nella lista d'attesa
 		if (strcmp(strerror(errno), "Operation not permitted") == 0) {
+			#ifdef DEBUG
 			printf("DEBUG file lockato\n");
 			fflush(stdout);
+			#endif
 
 			if (pthread_mutex_lock(lock) == -1) {
 				perror("lock");
@@ -1813,7 +1881,9 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 			}
 
 			else {
+				#ifdef DEBUG
 				printf("Ho aggiunto il client %ld alla lista d'attesa per il file %s.\n", fd_c, filepath);
+				#endif
 			}
 
 			if (pthread_mutex_unlock(lock) == -1) {
@@ -1825,8 +1895,10 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 
 		// altrimenti c'e' stato un errore diverso
 		else {
+			#ifdef DEBUG
 			printf("DEBUG Errore diverso\n");
 			fflush(stdout);
+			#endif
 			memcpy(res, er, 3);
 		}
 	}
@@ -1994,8 +2066,10 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 			long wait = -1;
 			wait = removeFirstWaiting(waiting, filepath);
 			if (wait != -1) {
+				#ifdef DEBUG
 				printf("Sveglio il client %ld\n", wait);
 				fflush(stdout);
+				#endif
 				lockFile(filepath, queue, wait, logFileT, lock, lockCond, waiting);
 			}
 
@@ -2108,8 +2182,10 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 		long wait = -1;
 		wait = removeFirstWaiting(waiting, filepath);
 		if (wait != -1) {
+			#ifdef DEBUG
 			printf("Sveglio il client %ld\n", wait);
 			fflush(stdout);
+			#endif
 			lockFile(filepath, queue, wait, logFileT, lock, lockCond, waiting);
 		}
 
@@ -2241,8 +2317,10 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 		long wait = -1;
 		wait = removeFirstWaiting(waiting, filepath);
 		if (wait != -1) {
+			#ifdef DEBUG
 			printf("Sveglio il client %ld\n", wait);
 			fflush(stdout);
+			#endif
 			lockFile(filepath, queue, wait, logFileT, lock, lockCond, waiting);
 		}
 
@@ -2320,8 +2398,10 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 }
 
 int addWaiting(waitingT **waiting, char *file, int fd) {
+	#ifdef DEBUG
 	printf("Sono nella addWaiting\n");
 	fflush(stdout);
+	#endif
 
 	// controllo la validita' degli argomenti
 	if (!file) {
@@ -2350,10 +2430,12 @@ int addWaiting(waitingT **waiting, char *file, int fd) {
 
 	// se la lista era vuota, il file aggiunto diventa il primo della lista
 	if (*waiting == NULL) {
-		printf("la lista era vuota, aggiungo il file come primo della lista\n");
 		*waiting = new;
 
+		#ifdef DEBUG
+		printf("la lista era vuota, aggiungo il file come primo della lista\n");
 		printf("Adesso il primo el e' %ld %s\n", new->fd, new->file);
+		#endif
 	}
 
 	// altrimenti, scorro tutta la lista e aggiungo il file come ultimo elemento
@@ -2369,19 +2451,25 @@ int addWaiting(waitingT **waiting, char *file, int fd) {
 }
 
 int removeFirstWaiting(waitingT **waiting, char *file) {
+	#ifdef DEBUG
 	printf("Sono nella removeFirstWaiting\n");
 	fflush(stdout);
+	#endif
 
 	// controllo la validita' degli argomenti
 	if (!file) {
+		#ifdef DEBUG
 		printf("EINVAL\n");
 		fflush(stdout);
+		#endif
 		return -1;
 	}
 
 	if (!(*waiting)) {
+		#ifdef DEBUG
 		printf("lista vuota\n");
 		fflush(stdout);
+		#endif
 		return -1;
 	}
 
@@ -2390,8 +2478,10 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 	long res = -1;
 
 	// controllo se l'elemento da rimuovere e' il primo della lista
+	#ifdef DEBUG
 	printf("comparo %s! e %s!\n", temp->file, file);
 	fflush(stdout);
+	#endif
 
 	if (strcmp(temp->file, file) == 0) {
 		res = temp->fd;
@@ -2399,8 +2489,10 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 		free(temp->file);
 		free(temp);
 
+		#ifdef DEBUG
 		printf("Ho trovato res = %ld\n", res);
 		fflush(stdout);
+		#endif
 
 		return res;
 	}
@@ -2410,22 +2502,28 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 		prec = temp;
 		temp = temp->next;
 
+		#ifdef DEBUG
 		printf("comparo %s! e %s!\n", temp->file, file);
 		fflush(stdout);
+		#endif
 		if (strcmp(temp->file, file) == 0) {
 			res = temp->fd;
 			prec->next = temp->next;
 			free(temp->file);
 			free(temp);
 
+			#ifdef DEBUG
 			printf("Ho trovato res = %ld\n", res);
 			fflush(stdout);
+			#endif
 			return res;
 		}
 	}
 
+	#ifdef DEBUG
 	printf("Non ho trovato res\n");
 	fflush(stdout);
+	#endif
 
 	return -1;
 }
@@ -2440,12 +2538,16 @@ void clearWaiting(waitingT **waiting) {
 			temp = temp->next;
 
 			if (removeFirstWaiting(waiting, prec->file) == -1) {
+				#ifdef DEBUG
 				printf("non dovrebbe succedere...");
+				#endif
 			}
 		}
 	}
 
 	else {
+		#ifdef DEBUG
 		printf("la lista era vuota.\n");
+		#endif
 	}
 }

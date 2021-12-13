@@ -27,7 +27,7 @@ typedef struct struct_cmd {
 } cmdT;
 
 typedef struct struct_cmd_w {
-	char Directory[256];
+	char *Directory;
 	int print;
 	int maxN;
 	int currN;
@@ -316,7 +316,7 @@ int main(int argc, char* argv[]) {
 			case 'R':	// legge 'n' file qualsiasi attualmente memorizzati nel server
 			 	if (optarg && strlen(optarg) > 0 && optarg[0] == '-') {
 					optind -= 1;
-					addCmd(&cmdList, opt, "");
+					addCmd(&cmdList, opt, NULL);
 				}
 
 				else {
@@ -331,7 +331,7 @@ int main(int argc, char* argv[]) {
 			case ':':
 				switch(optopt) {
 					case 'R':
-						addCmd(&cmdList, optopt, "");
+						addCmd(&cmdList, optopt, NULL);
 						break;
 					default:
 						fprintf(stderr, "Il comando -%c necessita di un argomento.\n", optopt);
@@ -376,6 +376,9 @@ int main(int argc, char* argv[]) {
 		}
 		
 		if (wT) {
+			if (wT->Directory) {
+				free(wT->Directory);
+			}
 			free(wT);
 		}
 
@@ -385,27 +388,29 @@ int main(int argc, char* argv[]) {
 // aggiunge un comando in fondo alla lista
 int addCmd(cmdT **cmdList, char cmd, char *arg) {
 	// controllo la validita' degli argomenti 
-	if (!cmdList || !arg) {
+	if (!cmdList) {
 		errno = EINVAL;
 		return -1;
 	}
 
 	// creo il nuovo elemento allocandone la memoria
 	cmdT *new = NULL;
-	if ((new = malloc(sizeof(cmdT))) == NULL) {
+	if ((new = calloc(1, sizeof(cmdT))) == NULL) {
 		perror("malloc cmdT");
 		return -1;
 	}
 
 	new->cmd = cmd;
 
-	if ((new->arg = malloc(CMDSIZE)) == NULL) {
+	if (arg) {
+		if ((new->arg = malloc(CMDSIZE)) == NULL) {
 		perror("malloc arg");
 		free(new);
 		return -1;
 	}
 
 	strncpy(new->arg, arg, strlen(arg)+1);
+	}
 
 	new->next = NULL;
 
@@ -442,8 +447,8 @@ int execute(cmdT *cmdList, int print) {
 	//char sock[256] = "";	// socket che viene impostato con il comando -f
 	int w = 0;				// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
 	int r = 0;				// se = 1, l'ultimo comando letto e' una lettura (-r o -R)
-	char Dir[256] = "";		// cartella in cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
-	char dir[256] = "";		// cartella in cui scrivere i file letti dal server
+	char *Dir = NULL;		// cartella in cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
+	char *dir = NULL;		// cartella in cui scrivere i file letti dal server
 
 	// variabili per gestire il comando -t
 	struct timespec tim1, tim2;
@@ -458,7 +463,19 @@ int execute(cmdT *cmdList, int print) {
 			// stampa il messaggio di aiuto
 			case 'h':
 				w = 0;
-				printf("\nMessaggio di aiuto... TO-DO");
+				printf("\n-h: stampa il presente messaggio d'aiuto.");
+				printf("\n-f filename: connettiti al socket AF_UNIX 'filename'.");
+				printf("\n-w dirname[,n=0]: invia al server 'n' file nella cartella 'dirname'. Se n=0 o non e' specificato, tenta di inviare tutti i file al server.");
+				printf("\n-W file1[,file2]: scrivi sul server una lista di file, separati da virgole.");
+				printf("\n-D dirname: specifica la cartella dove scrivere i file espulsi dal server in seguito a capacity misses.");
+				printf("\n-r file1[,file2]: leggi dal server una lista di nomi di file, separati da virgole.");
+				printf("\n-R [n=0]: leggi dal server 'n' file qualsiasi. Se n=0 o non e' specificato, leggi tutti i file presenti nel server per i quali si hanno i permessi necessari.");
+				printf("\n-d dirname: cartella dove scrivere i file letti dal server con i comandi '-r' o '-R'.");
+				printf("\n-t time: se specificato, fra le richieste successive al server vi sara' un'attesa di 'time' millisecondi.");
+				printf("\n-l file1[,file2]: acquisisci la mutua esclusione su una lista di file, separati da virgole.");
+				printf("\n-u file1[,file2]: rilascia la mutua esclusione su una lista di file, separati da virgole.");
+				printf("\n-c file1[,file2]: rimuovi dal server una lista di file (se presenti), separati da virgole.");
+				printf("\n-p: stampa sullo standard output le informazioni riguardo ogni operazione effettuata.");
 				break;
 
 			// connettiti al socket AF_UNIX specificato
@@ -499,7 +516,7 @@ int execute(cmdT *cmdList, int print) {
 				num = strtol(temp->arg, NULL, 0);
 
 				// converto i msec inseriti dall'utente in secondi e nanosecondi per la nanosleep
-				if (num > 1000) {
+				if (num >= 1000) {
 					sec = num/1000;
 					msec = num % 1000;
 				}
@@ -519,13 +536,15 @@ int execute(cmdT *cmdList, int print) {
 
 			// scrivi sul server 'n' file contenuti in una cartella
 			case 'w':
-				memset(Dir, '\0', 256);
+				free(Dir);
+				Dir = NULL;
 				w = 1;
 				r = 0;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'D') {
+						Dir = malloc(strlen((temp->next)->arg) +1);
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
 						if (setDirectory(Dir, 1) == -1) {
@@ -546,13 +565,15 @@ int execute(cmdT *cmdList, int print) {
 
 			// lista di nomi di file da scrivere nel server separati da virgole
 			case 'W':
-				memset(Dir, '\0', 256);
+				free(Dir);
+				Dir = NULL;
 				w = 1;
 				r = 0;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'D') {
+						Dir = malloc(strlen((temp->next)->arg) +1);
 						strncpy(Dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
 						if (setDirectory(Dir, 1) == -1) {
@@ -585,13 +606,15 @@ int execute(cmdT *cmdList, int print) {
 
 			// leggi dal server una lista di file, separati da virgole
 			case 'r':
-				memset(dir, '\0', 256);
+				free(dir);
+				dir = NULL;
 				r = 1;
 				w = 0;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'd') {
+						dir = malloc(strlen((temp->next)->arg) +1);
 						strncpy(dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
 						if (setDirectory(dir, 0) == -1) {
@@ -612,13 +635,15 @@ int execute(cmdT *cmdList, int print) {
 
 			// leggi 'n' file qualsiasi attualmente memorizzati nel server
 			case 'R':
-				memset(dir, '\0', 256);
+				free(dir);
+				dir = NULL;
 				r = 1;
 				w = 0;
 
 				// controllo se il prossimo comando specifica una directory nella quale salvare i file espulsi
 				if (temp->next) {
 					if ((temp->next)->cmd == 'd') {
+						dir = malloc(strlen((temp->next)->arg) +1);
 						strncpy(dir, (temp->next)->arg, strlen((temp->next)->arg)+1);
 
 						if (setDirectory(dir, 0) == -1) {
@@ -684,6 +709,14 @@ int execute(cmdT *cmdList, int print) {
 
 	if (print) {
 		printf("\n");
+	}
+
+	if (dir) {
+		free(dir);
+	}
+
+	if (Dir) {
+		free(Dir);
 	}
 
 	if (strcmp(globalSocket, "") != 0) {
@@ -791,7 +824,15 @@ int cmd_w(char *dirname, char *Directory, int print) {
 		wT->print = 0;
 	}
 
-	strncpy(wT->Directory, Directory, strlen(Dir)+1);
+	if (Directory) {
+		wT->Directory = realloc(wT->Directory, strlen(Dir)+1);
+		strncpy(wT->Directory, Directory, strlen(Dir)+1);
+	}
+
+	else {
+		free(wT->Directory);
+	}
+	
 
 	if (print) {
 		printf("\nw - Scrivo i seguenti file sul server:");
@@ -835,7 +876,7 @@ int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag) {
 // scrivi una lista di file sul server
 int cmd_W(const char *filelist, char *Directory, int print) {
 	// controllo la validita' degli argomenti
-	if (!filelist || !Directory) {
+	if (!filelist) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -890,10 +931,13 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 			ok = 0;
 		}
 
-		// TO-DO fare la unlock sul file
+		// se il file e' stato creato ma la scrittura non e' riuscita, elimina il file vuoto appena creato
+		if (opened && !ok) {
+			removeFile(token);
+		}
 
 		// chiudo il file
-		if (opened && closeFile(token) == -1) {
+		else if (opened && closeFile(token) == -1) {
 			ok = 0;
 		}
 
@@ -934,7 +978,7 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 
 // leggi dal server una lista di file, separati da virgole
 int cmd_r(const char *filelist, char *directory, int print) {
-	if (!filelist || !directory) {
+	if (!filelist) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -1017,7 +1061,7 @@ int cmd_r(const char *filelist, char *directory, int print) {
 		token = strtok_r(NULL, ",", &save);
 	}
 
-	if (print && strcmp(directory, "") != 0) {
+	if (print && directory) {
 		printf("\nI file letti sono stati scritti nella cartella %s.\n.", directory);
 		fflush(stdout);
 	}
@@ -1038,42 +1082,39 @@ int cmd_r(const char *filelist, char *directory, int print) {
 
 // leggi 'n' file qualsiasi attualmente memorizzati nel server
 int cmd_R(const char *numStr, char *directory, int print) {
-	if (!directory) {
-		errno = EINVAL;
-		return -1;
-	}
-
 	int n = 0;
-
-	// parso l'argomento
-	char *token = NULL, *save = NULL;
-	char tokenList[256] = "";
-	strncpy(tokenList, numStr, strlen(numStr)+1);
-	token = strtok_r(tokenList, ",", &save);
 
 	if (print) {
 		printf("\nR - Leggo i seguenti file dal server:\n");
 		fflush(stdout);
 	}
 
-	// controllo se nel comando e' stato specificato il numero massimo di file da leggere
-	if (token) {
-		if (strlen(token) > 2) {
-			if (token[0] == 'n' && token[1] == '=') {
-				char *number = token+2;
-				int valid = 1;
+	if (numStr) {
+		// parso l'argomento
+		char *token = NULL, *save = NULL;
+		char tokenList[256] = "";
+		strncpy(tokenList, numStr, strlen(numStr)+1);
+		token = strtok_r(tokenList, ",", &save);
 
-				for (int i = 0; i < strlen(number); i++) {
-					if (!isdigit(number[i])) {
-						valid = 0;
-						break;
+		// controllo se nel comando e' stato specificato il numero massimo di file da leggere
+		if (token) {
+			if (strlen(token) > 2) {
+				if (token[0] == 'n' && token[1] == '=') {
+					char *number = token+2;
+					int valid = 1;
+
+					for (int i = 0; i < strlen(number); i++) {
+						if (!isdigit(number[i])) {
+							valid = 0;
+							break;
+						}
 					}
-				}
 
-				if (valid) {
-					int num = (int) strtol(number, NULL, 0);
-					if (num > 0) {
-						n = num;
+					if (valid) {
+						int num = (int) strtol(number, NULL, 0);
+						if (num > 0) {
+							n = num;
+						}
 					}
 				}
 			}
@@ -1084,7 +1125,7 @@ int cmd_R(const char *numStr, char *directory, int print) {
 		return -1;
 	}
 
-	if (print && strcmp(directory, "") != 0) {
+	if (print && directory) {
 		printf("I file letti sono stati scritti nella cartella %s.\n", directory);
 	}
 

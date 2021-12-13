@@ -57,17 +57,17 @@ cleanall	: clean
 	\rm -f *.o *~ *.a ./mysock
 
 test1	:
-	printf "threadpoolSize:1\nsockName:mysock\nmaxFiles:10000\nmaxSize:128000\nlogFile:logs" > config/config.txt
+	printf "threadpoolSize:1\npendingQueueSize:10\nsockName:mysock\nmaxFiles:10000\nmaxSize:128000\nlogFile:logs" > config/config.txt
 	valgrind --leak-check=full ./server &
 	./script/test1.sh
 	pkill -1 memcheck-amd64 
 
 test2	:
-	printf "threadpoolSize:4\nsockName:mysock\nmaxFiles:10\nmaxSize:1000\nlogFile:logs" > config/config.txt
+	printf "threadpoolSize:4\npendingQueueSize:100\nsockName:mysock\nmaxFiles:10\nmaxSize:1000\nlogFile:logs" > config/config.txt
 	./server &
 	./script/test2.sh
 	pkill -1 server
 
 test3	:
-	printf "threadpoolSize:8\nsockName:mysock\nmaxFiles:100\nmaxSize:32000\nlogFile:logs" > config/config.txt
+	printf "threadpoolSize:8\npendingQueueSize:200\nsockName:mysock\nmaxFiles:100\nmaxSize:32000\nlogFile:logs" > config/config.txt
 	./server & last_pid=$$!; ./script/test3.sh & sleep 30; kill -2 $$last_pid 
