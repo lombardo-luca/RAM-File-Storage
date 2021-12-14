@@ -60,7 +60,7 @@ int writeFileT(fileT *f, void *content, size_t size) {
     }
 
     // scrittura in append
-    memcpy(f->content+f->size, content, size);
+    memcpy((char*)f->content+f->size, content, size);
     f->size += (size);
 
     //printf("writeFileT: ho scritto il file %s, di dimensione %ld\n", f->filepath, f->size);
@@ -94,7 +94,7 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
     // inizializzo la lock
     if (pthread_mutex_init(&queue->m, NULL) != 0) {
         perror("pthread_mutex_init m");
-        cleanupQueue(queue);
+        destroyQueue(queue);
         return (queueT*) NULL;
     }
 
@@ -170,6 +170,46 @@ int enqueue(queueT *queue, fileT* data) {
     return 0;
 }
 
+// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
+fileT* dequeue(queueT *queue) {
+    // controllo la validità dell'argomento
+    if (!queue) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    pthread_mutex_lock(&queue->m);
+
+    // se la coda e' vuota, errore
+    if (queue->head == NULL || queue->len == 0) {
+        errno = ENOENT;
+        pthread_mutex_unlock(&queue->m);
+        return NULL;
+    }
+
+    fileT *data = (queue->head)->data;
+
+    nodeT *temp = NULL;
+    temp = queue->head;
+    queue->head = (queue->head)->next;
+
+    if (queue->head == NULL) {
+        queue->tail = NULL;
+    }
+   
+    queue->len--;
+    queue->size -= data->size;
+    assert(queue->len >= 0);
+
+    //destroyFile(temp->data);
+    free(temp);
+
+    //printf("dequeue: ho rimosso il file %s di dimensione %ld\n", data->filepath, data->size);
+
+    pthread_mutex_unlock(&queue->m);
+    return data;
+}
+
 void voiDequeue(queueT *queue) {
     // controllo la validità dell'argomento
     if (!queue) {
@@ -206,63 +246,6 @@ void voiDequeue(queueT *queue) {
     free(temp);
 
     pthread_mutex_unlock(&queue->m);
-}
-
-// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
-fileT* dequeue(queueT *queue) {
-    // controllo la validità dell'argomento
-    if (!queue) {
-        errno = EINVAL;
-        return NULL;
-    }
-
-    pthread_mutex_lock(&queue->m);
-
-    // se la coda e' vuota, errore
-    if (queue->head == NULL || queue->len == 0) {
-        errno = ENOENT;
-        pthread_mutex_unlock(&queue->m);
-        return NULL;
-    }
-
-    /*
-    // creo una copia del primo elemento della coda (in modo da restituirlo come risultato) prima di rimuoverlo
-    fileT *data = NULL;
-    data = createFileT(((queue->head)->data)->filepath, ((queue->head)->data)->O_LOCK, ((queue->head)->data)->owner);
-    if (data == NULL) {
-        perror("createFileT");
-        pthread_mutex_unlock(&queue->m);
-        return NULL;
-    }
-
-    if (writeFileT(data, ((queue->head)->data)->content, ((queue->head)->data)->size) == -1) {
-        perror("writeFileT");
-        pthread_mutex_unlock(&queue->m);
-        return NULL;
-    }
-    */
-
-    fileT *data = (queue->head)->data;
-
-    nodeT *temp = NULL;
-    temp = queue->head;
-    queue->head = (queue->head)->next;
-
-    if (queue->head == NULL) {
-        queue->tail = NULL;
-    }
-   
-    queue->len--;
-    queue->size -= data->size;
-    assert(queue->len >= 0);
-
-    //destroyFile(temp->data);
-    free(temp);
-
-    //printf("dequeue: ho rimosso il file %s di dimensione %ld\n", data->filepath, data->size);
-
-    pthread_mutex_unlock(&queue->m);
-    return data;
 }
 
 int printQueue(queueT *queue) {
@@ -632,7 +615,7 @@ int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size,
             }
 
             // scrittura in append
-            memcpy((temp->data)->content + (temp->data)->size, content, size);
+            memcpy(((char*)(temp->data)->content) + (temp->data)->size, content, size);
             (temp->data)->size += size;
             queue->size += size;
         }
@@ -727,43 +710,6 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
     return 0;
 }
 
-/*
-int removeFileFromQueue(queueT *queue, char *filepath, int client) {
-    // controllo la validità degli argomenti
-    if (!queue || !filepath) {
-        errno = EINVAL;
-        return -1;
-    }
-
-    printf("DEBUG sono dentro la RemoveFile\n");
-
-    pthread_mutex_lock(&queue->m);
-
-    queueT *tempQueue = createQueue(getLen(queue), getSize(queue));
-    int cnt = 0;
-
-    fileT *dequeueF;
-    while ((dequeueF = dequeue(queue)) != NULL) {
-        if (strcmp(dequeueF->filepath, filepath) == 0) {
-            break;
-        }
-
-        enqueue(tempQueue, dequeueF);
-        cnt++;
-    }
-
-    if (cnt > 0) {
-        while ((dequeueF = dequeue(tempQueue)) != NULL) {
-            enqueue(queue, dequeueF);
-        }
-    }
-
-    pthread_mutex_unlock(&queue->m);
-
-    return 0;
-}
-*/
-
 // attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
 fileT* find(queueT *queue, char *filepath) {
     // controllo la validità degli argomenti
@@ -857,23 +803,6 @@ void destroyQueue(queueT *queue) {
                 perror("voiDequeue");
             }
         }
-
-        cleanupQueue(queue);
-    }
-}
-
-// funzione di pulizia
-void cleanupQueue(queueT *queue) {
-    if (queue) {
-        /*
-        if (queue->head) {
-            free(queue->head);
-        }
-
-        if (queue->tail) {
-            free(queue->tail);
-        }
-        */
 
         if (&queue->m) {
             pthread_mutex_destroy(&queue->m);

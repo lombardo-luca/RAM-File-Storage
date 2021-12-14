@@ -125,8 +125,10 @@ int closeConnection(const char* sockname) {
 		return -1;
 	}
 
-	//printf("Connessione chiusa.\n");
-	//fflush(stdout);
+	#ifdef DEBUG
+	printf("Connessione chiusa.\n");
+	fflush(stdout);
+	#endif
 
 	// resetto la variabile globale che mantiene il nome del socket
 	strncpy(socketName, "", SOCKNAME_MAX);

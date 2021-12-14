@@ -143,25 +143,15 @@ void testAppendToFile() {
 	size_t size = strlen(str)+1;
 	memcpy(buf, str, size);
 
-	printf("Scrivo un file che non ho aperto. Mi aspetto: perror\n");
-	if (appendToFile("test/filepesante", buf, size, "Wtest") == -1) {
-		perror("writeFile");
-	}
-
-	printf("Creo un file non lockato. Mi aspetto: ES\n");
-	if (openFile("test/fileleggero", 1) == -1) {
-		perror("openFile");
-	}
+	openFile("test/file1.txt", 3);
+	writeFile("test/file1.txt", NULL);
 
 	printf("Faccio l'append su un file creato e aperto da me. Mi aspetto: OK\n");
-	if (appendToFile("test/fileleggero", buf, size, "Wtest") == -1) {
+	if (appendToFile("test/file1.txt", buf, size, "Wdir") == -1) {
 		perror("writeFile");
 	}
 
-	printf("Creo un altro file prima di chiudere l'altro. Mi aspetto: perror\n");
-	if (openFile("test/filepesante", 3) == -1) {
-		perror("openFile");
-	}
+	cmd_R("n=0", "Rdir", 1);
 
 	printf("FINE TEST APPENDTOFILE\n");
 
@@ -382,7 +372,7 @@ int main(int argc, char* argv[]) {
 			free(wT);
 		}
 
-		return 0;
+	return 0;
 }
 
 // aggiunge un comando in fondo alla lista

@@ -47,7 +47,6 @@ typedef struct struct_thread {
 	logT *logFileT;
 	threadpool_t *pool;
 	pthread_mutex_t *lock;
-	pthread_cond_t *lockCond;
 	waitingT **waiting;
 } threadT;
 
@@ -62,15 +61,15 @@ int update(fd_set set, int fdmax);
 int writeLog(logT *logFileT, char *logString);
 int updateStats(logT *logFileT, queueT *queue, int miss);
 void printStats(logT *logFileT);
-int parser(char *command, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting);
+int parser(char *command, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
 void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
 void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT);
 void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logFileT, int append);
-void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting);
-void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting);
-void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting);
-void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting);
+void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
+void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
+void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
+void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
 
 // funzioni ausiliarie
 int sendFile(fileT *f, long fd_c, logT *logFileT);
@@ -157,7 +156,6 @@ int main(int argc, char *argv[]) {
 	FILE *configFile;						// file di configurazione per il server
 	FILE *logFile;							// file di log
 	pthread_mutex_t lock;					// lock per le funzioni lockFile e unlockFile
-	pthread_cond_t lockCond;				// condition per le funzioni lockFile e unlockFile
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
 	sig_atomic_t numberOfConnections = 0;		// numero dei client attualmente connessi
 	sig_atomic_t stopIncomingConnections = 0;	// se = 1, non accetta più nuove connessioni dai client
@@ -366,15 +364,10 @@ int main(int argc, char *argv[]) {
 		return -1;
 	}
 
-	// inizializzo la lock e la condition per le funzioni lockFile e unlockFile
+	// inizializzo la lock per le funzioni lockFile, unlockFile, closeFile e removeFile
 	if (pthread_mutex_init(&lock, NULL) != 0) {
         perror("pthread_mutex_init lock");
         return -1;
-    }
-
-    if (pthread_cond_init(&lockCond, NULL) != 0) {
-		perror("pthread_cond_init lockCond");
-		return -1;
     }
 
 	strncpy(sa.sun_path, sockName, UNIX_PATH_MAX);
@@ -512,7 +505,6 @@ int main(int argc, char *argv[]) {
 			    			t->logFileT = logFileT;
 			    			t->pool = pool;
 			    			t->lock = &lock;
-			    			t->lockCond = &lockCond;
 			    			t->waiting = &waiting;
 
 							int r = addToThreadPool(pool, serverThread, (void*) t);
@@ -681,7 +673,6 @@ int main(int argc, char *argv[]) {
 			    		t->logFileT = logFileT;
 			    		t->pool = pool;
 			    		t->lock = &lock;
-			    		t->lockCond = &lockCond;
 			    		t->waiting = &waiting;
 
 						int r = addToThreadPool(pool, serverThread, (void*) t);
@@ -774,7 +765,6 @@ static void serverThread(void *par) {
 	logT *logFileT = t->logFileT;
 	threadpool_t *pool = t->pool;
 	pthread_mutex_t *lock = t->lock;
-	pthread_cond_t *lockCond = t->lockCond;
 	waitingT **waiting = t->waiting;
 	sigset_t sigset;
 	fd_set set, tmpset;	
@@ -871,7 +861,7 @@ static void serverThread(void *par) {
 	fflush(stdout);
 	#endif
 
-	if (parser(buf, queue, fd_c, logFileT, lock, lockCond, waiting) == -1) {
+	if (parser(buf, queue, fd_c, logFileT, lock, waiting) == -1) {
 		#ifdef DEBUG
 		printf("SERVER THREAD: errore parser.\n");
 		fflush(stdout);
@@ -1058,7 +1048,7 @@ void printStats(logT *logFileT) {
 }
 
 // effettua il parsing dei comandi
-int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting) {
+int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	if (!command || !queue || !logFileT) {
 		errno = EINVAL;
 		return -1;
@@ -1109,23 +1099,23 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mute
 	else if (token && strcmp(token, "lockFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
 
-		lockFile(token2, queue, fd_c, logFileT, lock, lockCond, waiting);
+		lockFile(token2, queue, fd_c, logFileT, lock, waiting);
 	}
 
 	else if (token && strcmp(token, "unlockFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
 
-		unlockFile(token2, queue, fd_c, logFileT, lock, lockCond, waiting);
+		unlockFile(token2, queue, fd_c, logFileT, lock, waiting);
 	}
 
 	else if (token && strcmp(token, "closeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
-		closeFile(token2, queue, fd_c, logFileT, lock, lockCond, waiting);
+		closeFile(token2, queue, fd_c, logFileT, lock, waiting);
 	}
 
 	else if (token && strcmp(token, "removeFile") == 0) {
 		token2 = strtok_r(NULL, ":", &save);
-		removeFile(token2, queue, fd_c, logFileT, lock, lockCond, waiting);
+		removeFile(token2, queue, fd_c, logFileT, lock, waiting);
 	}
 
 	// comando non riconosciuto
@@ -1834,7 +1824,7 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 }
 
 // imposta un file nello storage in modalita' locked
-void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting) {
+void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -1843,7 +1833,7 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 	memcpy(res, ok, 3);
 
 	// controllo la validita' degli argomenti
-	if (!filepath || !queue || !logFileT || !lock || !lockCond) {
+	if (!filepath || !queue || !logFileT || !lock || !waiting) {
 		errno = EINVAL;
 		memcpy(res, er, 3);
 		goto send;
@@ -1982,7 +1972,7 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 }
 
 // resetta il flag O_LOCK di un file nello storage
-void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting) {
+void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
 	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
@@ -1991,7 +1981,7 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 	memcpy(res, ok, 3);
 
 	// controllo la validita' degli argomenti
-	if (!filepath || !queue || !logFileT || !lock || !lockCond) {
+	if (!filepath || !queue || !logFileT || !lock || !waiting) {
 		errno = EINVAL;
 		memcpy(res, er, 3);
 		goto send;
@@ -2070,7 +2060,7 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 				printf("Sveglio il client %ld\n", wait);
 				fflush(stdout);
 				#endif
-				lockFile(filepath, queue, wait, logFileT, lock, lockCond, waiting);
+				lockFile(filepath, queue, wait, logFileT, lock, waiting);
 			}
 
 			if (pthread_mutex_unlock(lock) == -1) {
@@ -2093,7 +2083,7 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 }
 
 // chiudi un file nello storage
-void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting) {
+void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	void *res = malloc(BUFSIZE);
 	int found = 0;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
@@ -2102,7 +2092,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 	memcpy(res, ok, 3);
 
 	// controllo la validita' degli argomenti
-	if (!filepath || !queue || !logFileT || !lock || !lockCond) {
+	if (!filepath || !queue || !logFileT || !lock || !waiting) {
 		errno = EINVAL;
 		memcpy(res, er, 3);
 		goto cleanup;
@@ -2186,7 +2176,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 			printf("Sveglio il client %ld\n", wait);
 			fflush(stdout);
 			#endif
-			lockFile(filepath, queue, wait, logFileT, lock, lockCond, waiting);
+			lockFile(filepath, queue, wait, logFileT, lock, waiting);
 		}
 
 		if (pthread_mutex_unlock(lock) == -1) {
@@ -2205,7 +2195,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 }
 
 // rimuovi un file dallo storage
-void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, pthread_cond_t *lockCond, waitingT **waiting) {
+void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	void *res = malloc(BUFSIZE);
 	int found = 0;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
@@ -2214,7 +2204,7 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 	memcpy(res, ok, 3);
 
 	// controllo la validita' degli argomenti
-	if (!filepath || !queue || !logFileT || !lock || !lockCond) {
+	if (!filepath || !queue || !logFileT || !lock || !waiting) {
 		errno = EINVAL;
 		memcpy(res, er, 3);
 		goto cleanup;
@@ -2321,7 +2311,7 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 			printf("Sveglio il client %ld\n", wait);
 			fflush(stdout);
 			#endif
-			lockFile(filepath, queue, wait, logFileT, lock, lockCond, waiting);
+			lockFile(filepath, queue, wait, logFileT, lock, waiting);
 		}
 
 		if (pthread_mutex_unlock(lock) == -1) {
