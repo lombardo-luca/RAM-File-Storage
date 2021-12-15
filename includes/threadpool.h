@@ -1,10 +1,12 @@
+// libreria presa dalla soluzione dell'esercitazione 11
+
 #ifndef THREADPOOL_H_
 #define THREADPOOL_H_
 
 #include <pthread.h>
 
 /**
- *  @struct threafun_t
+ *  @struct taskfun_t
  *  @brief generico task che un thread del threadpool deve eseguire
  *  @var fun Puntatore alla funzione da eseguire
  *  @var arg Argomento della funzione
@@ -76,4 +78,3 @@ int addToThreadPool(threadpool_t *pool, void (*fun)(void *),void *arg);
 int spawnThread(void (*f)(void*), void* arg);
 
 #endif /* THREADPOOL_H_ */
-

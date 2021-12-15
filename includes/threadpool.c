@@ -1,3 +1,5 @@
+// libreria presa dalla soluzione dell'esercitazione 11
+
 #include <stdio.h>
 #include <assert.h>
 #include <stdlib.h>

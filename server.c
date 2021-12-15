@@ -36,7 +36,7 @@ typedef struct struct_log {
 // lista dei client in attesa di ottenere la lock su un file
 typedef struct struct_waiting {
 	long fd;			// file descriptor del client in attesa
-	char *file;		// nome del file sul quale si vuole acquisire la lock
+	char *file;			// nome del file sul quale si vuole acquisire la lock
 	struct struct_waiting *next;	// puntatore al prossimo elemento della lista
 } waitingT;
 
@@ -53,6 +53,7 @@ typedef struct struct_thread {
 static void serverThread(void *par);
 static void* sigThread(void *par);
 
+// funzioni per la gestione della lista d'attesa per le lock
 int addWaiting(waitingT **waiting, char *file, int fd);
 int removeFirstWaiting(waitingT **waiting, char *file);
 void clearWaiting(waitingT **waiting);
@@ -62,6 +63,8 @@ int writeLog(logT *logFileT, char *logString);
 int updateStats(logT *logFileT, queueT *queue, int miss);
 void printStats(logT *logFileT);
 int parser(char *command, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
+
+// procedure chiamate dal parser, corrispondenti ai comandi inviati dal client
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT);
 void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT);
 void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT);
@@ -744,6 +747,7 @@ int main(int argc, char *argv[]) {
 
 	unlink(sockName);
 
+	printf("File Storage Server terminato.\n");
 	fflush(stdout);
 	return 0;
 	//exit(EXIT_SUCCESS);
