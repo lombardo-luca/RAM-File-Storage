@@ -119,10 +119,10 @@ int removeFile(const char* pathname);
 
 /**
  * A seconda del flag 'rw', imposta la cartella per le scritture dei file eventualmente espulsi dal server in seguito a capacity misses 
- * provocati da una openFile, oppure imposta la cartella dove scrivere i file letti con la readFile.
- * \param Dir -> cartella da impostare per la openFile o la readFile
- * \param rw -> se = 1, imposta la cartella per le scritture dei file espulsi provocate dalla openFile
- *              se = 0, imposta la cartella dove scrivere i file letti con la readFile
+ * provocati dalle openFile(O_CREATE), oppure imposta la cartella dove scrivere i file letti con le readFile.
+ * \param Dir -> cartella da impostare per le openFile o le readFile
+ * \param rw -> se = 1, imposta la cartella per le scritture dei file espulsi provocate dalle openFile
+ *              se = 0, imposta la cartella dove scrivere i file letti con le readFile
  */
 int setDirectory(char* Dir, int rw);
 

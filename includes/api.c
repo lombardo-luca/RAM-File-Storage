@@ -18,6 +18,7 @@
 #define SOCKNAME_MAX 100
 //#define DEBUG
 
+// struttura dati per la lista dei file aperti
 typedef struct struct_of {		
 	char *filename;				// nome del file
 	struct struct_of *next;		// puntatore al prossimo elemento nella lista
@@ -26,8 +27,6 @@ typedef struct struct_of {
 static char socketName[SOCKNAME_MAX] = "";	// nome del socket al quale il client e' connesso
 static int fd_skt;							// file descriptor per le operazioni di lettura e scrittura sul server
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
-//static char openedFile[256] = "";			// filepath del file attualmente aperto
-//static char *openFiles[MAX_OPEN_FILES];	// array dei file attualmente aperti
 static ofT *openFiles = NULL;				// lista dei file attualmente aperti
 static int numOfFiles = 0;					// numero di file attualmente aperti
 static char *writingDirectory = NULL; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
@@ -86,20 +85,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 	// copio il nome del socket nella variabile globale
 	strncpy(socketName, sockname, SOCKNAME_MAX);
-
-	/*
-	// inizializzo l'array che conterrà i file aperti dal client
-	for (int i = 0; i < MAX_OPEN_FILES; i++) {
-		printf("alloco... %d\n", i);
-		openFiles[i] = calloc(1, 256);
-
-		if (!openFiles[i]) {
-			perror("calloc");
-		}
-
-		strncpy(openFiles[i], "", 2);
-	}
-	*/
 
 	return 0;
 }
@@ -1289,6 +1274,7 @@ int receiveNFiles(const char *dirname) {
 	return filesCount;
 }
 
+// funzione ausiliaria chiamata dalla lockFile
 int lockFile_aux(const char *pathname) {
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -1367,6 +1353,7 @@ int setDirectory(char* Dir, int rw) {
 	return 0;
 }
 
+// consente di abilitare o disabilitare le stampe sullo standard output
 void printInfo(int p) {
 	if (p) {
 		print = 1;
@@ -1377,6 +1364,7 @@ void printInfo(int p) {
 	}
 }
 
+// aggiunge un elemento alla lista dei file attualmente aperti
 int addOpenFile(const char *pathname) {
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -1427,6 +1415,7 @@ int addOpenFile(const char *pathname) {
 	return 0;
 }
 
+// rimuove un elemento dalla lista dei file attualmente aperti e ne libera la memoria
 int removeOpenFile(const char *pathname) {
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -1470,6 +1459,7 @@ int removeOpenFile(const char *pathname) {
 	return -1;
 }
 
+// restituisce 1 se il file passato come argomento è presente nella lista dei file attualmente aperti, 0 altrimenti
 int isOpen(const char *pathname) {
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -1495,6 +1485,7 @@ int isOpen(const char *pathname) {
 	return 0;
 }
 
+// chiude tutti i file attualmente aperti dal client
 int closeEveryFile() {
 	// controllo che la lista dei file aperti non sia vuota
 	if (openFiles != NULL && numOfFiles > 0) {

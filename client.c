@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <ftw.h>
 
+// librerie in /includes
 #include <api.h>
 #include <partialIO.h>
 
@@ -26,6 +27,7 @@ typedef struct struct_cmd {
 	struct struct_cmd *next;	// puntatore al prossimo comando nella lista
 } cmdT;
 
+// struttura dati necessaria per il comando -w
 typedef struct struct_cmd_w {
 	char *Directory;
 	int print;
@@ -748,7 +750,7 @@ int cmd_f(char* socket) {
 
 	struct timespec ts;
 	ts.tv_sec = 2;
-	ts.tv_nsec = 550;
+	ts.tv_nsec = 0;
 
 	errno = 0;
 	if (openConnection(socket, 100, ts) != 0) {

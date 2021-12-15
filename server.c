@@ -14,6 +14,7 @@
 #include <stdatomic.h>
 #include <sys/syscall.h>
 
+// librerie in /includes
 #include <threadpool.h>
 #include <fileQueue.h>
 #include <partialIO.h>
@@ -1897,27 +1898,6 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 		}
 	}
 
-	/*
-	// prova a settare il flag O_LOCK sul file
-	while (openFileInQueue(queue, filepath, 1, fd_c) == -1) {
-		// se il file e' gia' stato lockato da un client diverso, attendi fino a che qualcuno non fa una unlockFile()
-		if (strcmp(strerror(errno), "Operation not permitted") == 0) {
-			printf("DEBUG file lockato\n");
-			fflush(stdout);
-		}
-
-		// altrimenti c'e' stato un errore diverso
-		else {
-			printf("DEBUG Errore diverso\n");
-			fflush(stdout);
-
-		}
-
-		memcpy(res, er, 3);
-		break;
-	}
-	*/
-
 	send:
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
@@ -2229,28 +2209,6 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 			memcpy(res, er, 3);
 		}
 
-		/*
-		queueT *tempQueue = createQueue(getLen(queue), getSize(queue));
-	    int cnt = 0;
-
-	    fileT *dequeueF;
-	    while ((dequeueF = dequeue(queue)) != NULL) {
-	        if (strcmp(dequeueF->filepath, filepath) == 0) {
-	            break;
-	        }
-
-	        enqueue(tempQueue, dequeueF);
-	        cnt++;
-	    }
-
-	    if (cnt > 0) {
-	        while ((dequeueF = dequeue(tempQueue)) != NULL) {
-	            enqueue(queue, dequeueF);
-	        }
-	    }
-	    destroyQueue(tempQueue);
-	    */
-
 		destroyFile(findF);
 	}
 
@@ -2391,6 +2349,7 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	return 0;
 }
 
+// aggiunge una coppia client/file alla coda dei client in attesa di ottenre la lock
 int addWaiting(waitingT **waiting, char *file, int fd) {
 	#ifdef DEBUG
 	printf("Sono nella addWaiting\n");
@@ -2444,6 +2403,7 @@ int addWaiting(waitingT **waiting, char *file, int fd) {
 	return 0;
 }
 
+// dato un file, restituisce il primo client in attesa di ottenere la lock su di esso
 int removeFirstWaiting(waitingT **waiting, char *file) {
 	#ifdef DEBUG
 	printf("Sono nella removeFirstWaiting\n");
@@ -2522,6 +2482,7 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 	return -1;
 }
 
+// distrugge la lista d'attesa e ne libera la memoria
 void clearWaiting(waitingT **waiting) {
 	if (waiting != NULL) {
 		// scorro tutta la lista
@@ -2533,7 +2494,7 @@ void clearWaiting(waitingT **waiting) {
 
 			if (removeFirstWaiting(waiting, prec->file) == -1) {
 				#ifdef DEBUG
-				printf("non dovrebbe succedere...");
+				perror("removeFirstWaiting");
 				#endif
 			}
 		}
