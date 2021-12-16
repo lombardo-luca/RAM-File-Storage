@@ -18,7 +18,6 @@
 #include <partialIO.h>
 
 #define UNIX_PATH_MAX 108 
-//#define SOCKNAME "./mysock"
 
 // struttura dati della lista di comandi
 typedef struct struct_cmd {		
@@ -38,9 +37,12 @@ typedef struct struct_cmd_w {
 static cmd_w_T *wT;								// variabile globale di appoggio per il comando -w
 static char globalSocket[UNIX_PATH_MAX] = "";	// variabile globale che contiene il nome del socket
 
+// funzioni operanti sulla lista di comandi
 int addCmd(cmdT **cmdList, char cmd, char *arg);
 int execute(cmdT *cmdList, int print);
 int destroyCmdList(cmdT *cmdList);
+
+// funzioni corrispondenti ai comandi
 int cmd_f(char* socket);
 int cmd_w(char *dirname, char *Directory, int print);
 int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag);
@@ -50,6 +52,8 @@ int cmd_R(const char *numStr, char *directory, int print);
 int cmd_l(const char *filelist, int print);
 int cmd_u(const char *filelist, int print);
 int cmd_c(const char *filelist, int print);
+
+// chiude la connessione con il server al termine dell'esecuzione del client
 void cleanup();
 
 void testOpenFile() {
@@ -194,11 +198,8 @@ int main(int argc, char* argv[]) {
 
 	struct sigaction siga;
 
-	//printf("File Storage Client avviato.\n");
-	//fflush(stdout);
-
 	if (argc < 2) {
-		printf("Usage: ecc... Nessun argomento! TO-DO\n");
+		printf("Errore: specificare almeno un comando come argomento.\n");
 		return -1;
 	}
 
@@ -339,21 +340,14 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	/*
-	int num = strtol(argv[1], NULL, 0);
-	stressTest(num);
-	*/
-
+	// eseguo singolarmente tutti i comandi inseriti dall'utente
 	if (execute(cmdList, p) == -1) {
 		perror("execute");
 		
 		goto cleanup;
 	}
 
-	//testAppendToFile();
-	//testOpenFile();
-	//testWriteFile();
-
+	// libero la memoria
 	cleanup:
 		if (cmdList) {
 			if (destroyCmdList(cmdList) == -1) {
@@ -436,7 +430,6 @@ int execute(cmdT *cmdList, int print) {
 	int ok = 1;			// esito del comando
 	cmdT *temp = NULL;
 	temp = cmdList;
-	//char sock[256] = "";	// socket che viene impostato con il comando -f
 	int w = 0;				// se = 1, l'ultimo comando letto e' una scrittura (-w o -W)
 	int r = 0;				// se = 1, l'ultimo comando letto e' una lettura (-r o -R)
 	char *Dir = NULL;		// cartella in cui scrivere i file espulsi dal server a seguito di capacity misses in scrittura
@@ -501,7 +494,7 @@ int execute(cmdT *cmdList, int print) {
 				}
 				break;
 
-			// imposto il tempo che intercorre tra l’invio di due richieste successive al server
+			// imposta il tempo che intercorre tra l’invio di due richieste successive al server
 			case 't':
 				w = 0;
 				r = 0;
@@ -703,6 +696,7 @@ int execute(cmdT *cmdList, int print) {
 		printf("\n");
 	}
 
+	// libero la memoria
 	if (dir) {
 		free(dir);
 	}
@@ -711,6 +705,7 @@ int execute(cmdT *cmdList, int print) {
 		free(Dir);
 	}
 
+	// chiudo la connessione con il server
 	if (strcmp(globalSocket, "") != 0) {
 		closeConnection(globalSocket);
 		strncpy(globalSocket, "", 2);
@@ -719,6 +714,7 @@ int execute(cmdT *cmdList, int print) {
 	return 0;
 }
 
+// distrugge la lista di comandi, liberandone la memoria
 int destroyCmdList(cmdT *cmdList) {
 	// controllo la validita' dell'argomento
 	if (!cmdList) {
@@ -741,7 +737,7 @@ int destroyCmdList(cmdT *cmdList) {
 	return 0;
 }
 
-// connettiti al socket specificato
+// connette al socket specificato
 int cmd_f(char* socket) {
 	// controllo la validita' dell argomento
 	if (!socket) {
@@ -760,7 +756,7 @@ int cmd_f(char* socket) {
 	return 0;
 }
 
-// scrivi sul server 'n' file contenuti in una cartella
+// scrive sul server 'n' file contenuti in una cartella
 int cmd_w(char *dirname, char *Directory, int print) {
 	if (!dirname) {
 		errno = EINVAL;
@@ -824,13 +820,13 @@ int cmd_w(char *dirname, char *Directory, int print) {
 	else {
 		free(wT->Directory);
 	}
-	
 
 	if (print) {
 		printf("\nw - Scrivo i seguenti file sul server:");
 		fflush(stdout);
 	}
 
+	// invoca la funzione che visita ricorsivamente la cartella specificata e chiama la funzione ausiliaria su ogni file trovato
 	ftw(Dir, cmd_w_aux, FOPEN_MAX);
 
 	return 0;
@@ -854,18 +850,12 @@ int cmd_w_aux(const char *ftw_filePath, const struct stat *ptr, int flag) {
 		return -1;
 	}
 
-	if (cmd_W(ftw_filePath, wT->Directory, wT->print) == -1) {
-		/*
-		if (wT->print) {
-			perror("-w");
-		}
-		*/
-	}
+	cmd_W(ftw_filePath, wT->Directory, wT->print);
 
 	return 0;
 }
 
-// scrivi una lista di file sul server
+// scrive una lista di file sullo storage del server
 int cmd_W(const char *filelist, char *Directory, int print) {
 	// controllo la validita' degli argomenti
 	if (!filelist) {
@@ -896,20 +886,6 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 
 		// creo il file in modalita' locked
 		if (openFile(token, O_CREATE | O_LOCK) == -1) {
-			/*
-			if (strcmp(strerror(errno), "File exists") == 0) {
-				exists = 1;
-
-				if (openFile(token, 0) == -1) {
-					ok = 0;
-				}
-			}
-
-			else {
-				ok = 0;
-			}
-			*/
-
 			ok = 0;
 		}
 
@@ -968,7 +944,7 @@ int cmd_W(const char *filelist, char *Directory, int print) {
 	}
 }
 
-// leggi dal server una lista di file, separati da virgole
+// legge dal server una lista di file, separati da virgole
 int cmd_r(const char *filelist, char *directory, int print) {
 	if (!filelist) {
 		errno = EINVAL;
@@ -1059,7 +1035,7 @@ int cmd_r(const char *filelist, char *directory, int print) {
 	}
 
 	else if (print) {
-		printf("\nI file letti sono stati buttati via.\n");
+		printf("\nI file letti non sono stati memorizzati sul disco.\n");
 		fflush(stdout);
 	}
 
@@ -1122,7 +1098,7 @@ int cmd_R(const char *numStr, char *directory, int print) {
 	}
 
 	else if (print) {
-		printf("I file letti sono stati buttati via.\n");
+		printf("I file letti non sono stati memorizzati sul disco.\n");
 	}
 
 	return 0;
@@ -1254,7 +1230,7 @@ int cmd_c(const char *filelist, int print) {
 			fflush(stdout);
 		}
 
-		// acquisisci la lock, altrimenti la rimozione del file non e' possibile
+		// acquisisci la lock, altrimenti la rimozione del file non puo' avvenire
 		if (lockFile(token) == -1) {
 			if (print) {
 				printf("Esito: errore");
@@ -1286,6 +1262,7 @@ int cmd_c(const char *filelist, int print) {
 	return 0;
 }
 
+// chiudi la connessione con il server
 void cleanup() {
 	if (strcmp(globalSocket, "") != 0) {
 		closeConnection(globalSocket);

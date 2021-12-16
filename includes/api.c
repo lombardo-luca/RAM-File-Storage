@@ -29,7 +29,7 @@ static int fd_skt;							// file descriptor per le operazioni di lettura e scrit
 static int print = 0;						// se = 1, stampa su stdout informazioni sui comandi eseguiti
 static ofT *openFiles = NULL;				// lista dei file attualmente aperti
 static int numOfFiles = 0;					// numero di file attualmente aperti
-static char *writingDirectory = NULL; 	// cartella dove scrivere i file espulsi dal server in seguito a una openFile
+static char *writingDirectory = NULL; 		// cartella dove scrivere i file espulsi dal server in seguito a una openFile
 static char *readingDirectory= NULL;		// cartella dove scrivere i file letti dal server
 
 /**
@@ -39,6 +39,7 @@ static char *readingDirectory= NULL;		// cartella dove scrivere i file letti dal
  */
 static char createdAndLocked[256] = "";	
 
+// apre la connessione con il server
 int openConnection(const char* sockname, int msec, const struct timespec abstime) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -89,6 +90,7 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	return 0;
 }
 
+// chiude la connessione con il server
 int closeConnection(const char* sockname) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -118,6 +120,7 @@ int closeConnection(const char* sockname) {
 	// resetto la variabile globale che mantiene il nome del socket
 	strncpy(socketName, "", SOCKNAME_MAX);
 
+	// libera la memoria
 	if (writingDirectory) {
 		free(writingDirectory);
 	}
@@ -129,6 +132,7 @@ int closeConnection(const char* sockname) {
 	return 0;
 }
 
+// apre un file sul server
 int openFile(const char* pathname, int flags) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -156,14 +160,6 @@ int openFile(const char* pathname, int flags) {
 		return -1;
 	}
 
-	/*
-	// controllo che il client non abbia gia' un file aperto
-	if (strcmp(openedFile, "") != 0) {
-		errno = EMFILE;
-		return -1;
-	}
-	*/
-
 	char cmd[256] = "";
 
 	// preparo il comando da inviare al server in formato openFile:pathname:flags
@@ -186,11 +182,6 @@ int openFile(const char* pathname, int flags) {
 		return -1;
 	}
 
-	#ifdef DEBUG
-	printf("openFile: fatta la writen\n");
-	fflush(stdout);
-	#endif
-
 	// ricevo la risposta dal server
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
@@ -203,11 +194,6 @@ int openFile(const char* pathname, int flags) {
 		errno = EREMOTEIO;
 		return -1;
 	}
-
-	#ifdef DEBUG
-	printf("openFile: fatta la readn\n");
-	fflush(stdout);
-	#endif
 
 	char res[3];
 	memcpy(res, buf, 3);
@@ -252,15 +238,13 @@ int openFile(const char* pathname, int flags) {
 		}
 
 		else if (print) {
-			printf("\tIl file espulso e' stato buttato via.\n");
+			printf("\tIl file espulso non e' stato memorizzato sul disco.\n");
 		}
 	}
 
 	free(buf);
 	
-	// tengo traccia del file aperto
-	//strncpy(openedFile, pathname, strlen(pathname)+1);
-
+	// aggiorno la lista dei file aperti
 	if (addOpenFile(pathname) == -1) {
 		perror("addOpenFile");
 		return -1;
@@ -273,6 +257,7 @@ int openFile(const char* pathname, int flags) {
 	return 0;
 }
 
+// legge un file dal server
 int readFile(const char* pathname, void** buf, size_t* size) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -293,14 +278,6 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 		errno = EPERM;
 		return -1;
 	}
-
-	/*
-	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = EPERM;
-		return -1;
-	}
-	*/
 
 	void *bufRes = malloc(BUFSIZE);
 	char cmd[256] = "";
@@ -355,6 +332,7 @@ int readFile(const char* pathname, void** buf, size_t* size) {
 	return 0;
 }
 
+// legge 'N' file dal server
 int readNFiles(int N, const char* dirname) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -423,14 +401,9 @@ int readNFiles(int N, const char* dirname) {
 	return actualN;
 }
 
+// scrive un file sul server
 int writeFile(const char* pathname, const char* dirname) {
-	// controlla se la precedente operazione e' stata una openFile(O_CREATE | O_LOCK) terminata con successo.
-	/*
-	if ((strcmp(openedFile, pathname) != 0) || !createdAndLocked) {
-		errno = EPERM;
-		return -1;
-	}
-	*/
+	// controlla se la precedente operazione e' stata una openFile(O_CREATE | O_LOCK) terminata con successo
 	if (strcmp(createdAndLocked, pathname) != 0) {
 		errno = EPERM;
 		return -1;
@@ -450,11 +423,6 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
-	#ifdef DEBUG
-	printf("Sono dentro la writeFile\n");
-	fflush(stdout);
-	#endif
-
 	void *buf = malloc(BUFSIZE);
 	void *content = malloc(BUFSIZE);
 	size_t size = 0;
@@ -463,16 +431,11 @@ int writeFile(const char* pathname, const char* dirname) {
 	int fdi = -1, lung = 0;
 	// leggo il file da scrivere sul server
 	if ((fdi = open(pathname, O_RDONLY)) == -1) {
-		//perror("open");
 		free(buf);
 		free(content);
 		return -1;
 	}
 
-	#ifdef DEBUG
-	printf("provo la read...\n");
-	fflush(stdout);
-	#endif
 	while ((lung = read(fdi, content, BUFSIZE)) > 0) {
 		size += lung;
 	}
@@ -577,7 +540,7 @@ int writeFile(const char* pathname, const char* dirname) {
 		}
 
 		else if (print) {
-			printf("\tI file espulsi sono stati buttati via.\n");
+			printf("\tI file espulsi non sono stati memorizzati sul disco.\n");
 		}
 	}
 
@@ -589,11 +552,13 @@ int writeFile(const char* pathname, const char* dirname) {
 		return -1;
 	}
 
+	// libero la memoria
 	free(buf);
 	free(content);
 	return 0;
 }
 
+// scrive del contenuto in append ad un file sul server
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -608,14 +573,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		errno = ENOTCONN;
 		return -1;
 	}
-
-	/*
-	// se il file su cui si vuole scrivere non e' stato precedentemente creato o aperto, errore
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = EPERM;
-		return -1;
-	}
-	*/
 
 	// se il file su cui si vuole scrivere non e' stato precedentemente aperto, errore
 	if (isOpen(pathname) != 1) {
@@ -638,11 +595,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		size2 = size;
 	}
 
-	#ifdef DEBUG
-	printf("Sono dentro la appendToFile\n");
-	fflush(stdout);
-	#endif
-
 	void *readBuf = malloc(BUFSIZE);
 	char cmd[256] = "";
 	
@@ -658,7 +610,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	// invio il comando al server
 	#ifdef DEBUG
 	printf("appendToFile: invio %s!\n", cmd);
-	printf("appendToFile: aspetto la writen...\n");
 	fflush(stdout);
 	#endif
 
@@ -668,10 +619,6 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		return -1;
 	}
 
-	#ifdef DEBUG
-	printf("appendToFile: aspetto la readn...\n");
-	fflush(stdout);
-	#endif
 	// ricevo la risposta dal server
 	int r = readn(fd_skt, readBuf, 3);
 	if (r == -1 || r == 0) {
@@ -683,8 +630,10 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	char res[3];
 	memcpy(res, readBuf, 3);
 
-	//printf("appendToFile: ho ricevuto: %s!\n", res);
-	//fflush(stdout);
+	#ifdef DEBUG
+	printf("appendToFile: ho ricevuto: %s!\n", res);
+	fflush(stdout);
+	#endif
 
 	// se il server mi ha risposto con un errore...
 	if (strcmp(res, "er") == 0) {
@@ -723,10 +672,12 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 		return -1;
 	}
 
+	// libero la memoria
 	free(readBuf);
 	return 0;
 }
 
+// acquisisce la mutua esclusione su un file nel server
 int lockFile(const char* pathname) {
 	// controllo la validita' dell'argomento
 	if (!pathname) {
@@ -741,7 +692,6 @@ int lockFile(const char* pathname) {
 	}
 
 	// se il file sul quale si vuole acquisire la lock non e' stato ancora aperto...
-	//if (strcmp(openedFile, pathname) != 0) {
 	if (isOpen(pathname) != 1) {
 		// ...provo ad aprirlo in in modalita' locked
 		if (openFile(pathname, O_LOCK) == -1) {
@@ -753,7 +703,6 @@ int lockFile(const char* pathname) {
 
 				else {
 					// tengo traccia del file aperto
-					//strncpy(openedFile, pathname, strlen(pathname)+1);
 					if (addOpenFile(pathname) == -1) {
 						if (print) {
 							perror("addOpenFile");
@@ -766,7 +715,7 @@ int lockFile(const char* pathname) {
 				}
 			}
 
-			// errore diverso da EPERM, termina
+			// se c'e' stato un errore diverso da EPERM, termina con errore
 			else {
 				return -1;
 			}
@@ -784,6 +733,7 @@ int lockFile(const char* pathname) {
 	}
 }
 
+// rilascia la mutua esclusione su un file nel server
 int unlockFile(const char* pathname) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -805,14 +755,6 @@ int unlockFile(const char* pathname) {
 		return -1;
 	}
 
-	/*
-	// se il file non e' stato precedentemente aperto, errore
-	if (strcmp(openedFile, pathname) != 0) {
-		errno = EPERM;
-		return -1;
-	}
-	*/
-
 	// preparo il comando da inviare al server in formato unlockFile:pathname
 	char cmd[256] = "";
 	memset(cmd, '\0', 256);
@@ -825,8 +767,8 @@ int unlockFile(const char* pathname) {
 		return -1;
 	}
 
-	void *bufRes = malloc(BUFSIZE);
 	// ricevo la risposta dal server
+	void *bufRes = malloc(BUFSIZE);
 	int r = readn(fd_skt, bufRes, 3);
 	if (r == -1 || r == 0) {
 		free(bufRes);
@@ -861,6 +803,7 @@ int unlockFile(const char* pathname) {
 	}
 }
 
+// chiude un file nel server
 int closeFile(const char* pathname) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -917,7 +860,7 @@ int closeFile(const char* pathname) {
 		return -1;
 	}
 
-	// aggiorno la variabile globale che tiene traccia dei file aperti
+	// aggiorno la lista dei file aperti
 	if (removeOpenFile(pathname) == -1) {
 		perror("removeOpenFile");
 	}
@@ -926,10 +869,12 @@ int closeFile(const char* pathname) {
 		numOfFiles--;
 	}
 
+	// libero la memoria
 	free(buf);
 	return 0;
 }
 
+// rimuove un file dal server
 int removeFile(const char* pathname) {
 	strncpy(createdAndLocked, "", 2);
 
@@ -986,11 +931,12 @@ int removeFile(const char* pathname) {
 		return -1;
 	}
 
-	// aggiorno la variabile globale che tiene traccia dei file aperti
+	// aggiorno la lista dei file aperti
 	if (removeOpenFile(pathname) == -1) {
 		perror("removeOpenFile");
 	}
 
+	// libero la memoria
 	free(buf);
 	return 0;
 }
@@ -1030,6 +976,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	strncpy(filepath, buf, BUFSIZE);
+
 	#ifdef DEBUG
 	printf("Ho ricevuto filepath = %s\n", filepath);
 	fflush(stdout);
@@ -1044,6 +991,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	memcpy(&size, buf, sizeof(size_t));
+
 	#ifdef DEBUG
 	printf("Ho ricevuto size = %ld\n", size);
 	fflush(stdout);
@@ -1063,11 +1011,11 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 		return -1;
 	}
 
+	// se è stato passato un buffer come argomento, ci copio dentro il contenuto del file ricevuto
 	if (bufA) {
 		*bufA = calloc(1, size);
 		memcpy(*bufA, content, size);
 	}
-	//printf("Ho ricevuto il contenuto!\n");
 
 	if (print) {
 		printf("\t%-20s", filepath);
@@ -1076,14 +1024,13 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	}
 
 	if (dirname) {
-		//printf("SCRITTURA SU FILE\n");
 		memset(filename, '\0', 256);
 		strncpy(filename, filepath, strlen(filepath)+1);
 		char fullpath[512] = "";
 		strncpy(fullpath, dir, 256);
 
 		/**
-		 * Se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
+		 * se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
 		 * Questo puo' accadere poiche' il server memorizza i file utilizzando il loro path assoluto come identificatore.
 		*/
 		int i = 0;
@@ -1095,11 +1042,14 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 			i++;
 		}
 
-		//printf("Dir: %s Filename: %s Fullpath: %s\n", dir, filename, fullpath);
-		strncat(fullpath, filename, 256);
-		//printf("Voglio scrivere %ld bytes in %s\n", size, fullpath);
+		#ifdef DEBUG
+		printf("Dir: %s Filename: %s Fullpath: %s.\n", dir, filename, fullpath);
+		printf("Scrivo %ld bytes nella cartella %s.\n", size, fullpath);
+		#endif
 
-		// Apro file di output
+		strncat(fullpath, filename, 256);
+		
+		// apro file di output
 		int fdo;
 		if ((fdo = open(fullpath, O_WRONLY | O_CREAT, 0666)) == -1) {
 			free(content);
@@ -1108,6 +1058,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	    	return -1;
 		}
 
+		// scrivo sul file di output
 		if (write(fdo, content, size) == -1) {
 			free(content);
 	    	free(filename);
@@ -1115,6 +1066,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 	    	return -1;
 		}
 
+		// chiudo il file di output
 		if (close(fdo) == -1) {
 			free(content);
 	    	free(filename);
@@ -1123,6 +1075,7 @@ int receiveFile(const char *dirname, void** bufA, size_t *sizeA) {
 		}
 	}
 
+	// libero la memoria
 	free(filename);
 	free(content);
 	free(buf);
@@ -1173,7 +1126,10 @@ int receiveNFiles(const char *dirname) {
 
 		strncpy(filepath, buf, BUFSIZE);
 
-		//printf("DEBUG: ho ricevuto filepath = %s\n", filepath);
+		#ifdef DEBUG
+		printf("Ho ricevuto filepath = %s.\n", filepath);
+		fflush(stdout);
+		#endif
 
 		// se ho finito di ricevere file, esci
 		if (strcmp(filepath, ".FINE") == 0) {
@@ -1203,7 +1159,10 @@ int receiveNFiles(const char *dirname) {
 			printf("\tDimensione: %ld B\n", size);
 			fflush(stdout);
 		}
-		//printf("Ho ricevuto size = %ld\n", size);
+
+		#ifdef DEBUG
+		printf("Ho ricevuto size = %ld.\n", size);
+		#endif
 
 		content = malloc(size);
 
@@ -1224,7 +1183,7 @@ int receiveNFiles(const char *dirname) {
 			strncpy(fullpath, dir, 256);
 
 			/**
-			 * Se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
+			 * se il nome del file ricevuto contiene dei caratteri "/", li sostituisco con "-".
 			 * Questo puo' accadere poiché il server memorizza i file utilizzando il loro path assoluto come identificatore.
 			*/
 			int i = 0;
@@ -1238,26 +1197,25 @@ int receiveNFiles(const char *dirname) {
 
 			strncat(fullpath, filename, 256);
 
-			// Apro file di output
+			// apro file di output
 			int fdo;
 			if ((fdo = open(fullpath, O_WRONLY | O_CREAT, 0666)) == -1) {
-				//perror("open1");
 				free(content);
 		    	free(filename);
 		    	free(buf);
 		    	return -1;
 			}
 
+			// scrivo sul file di output
 			if (write(fdo, content, size) == -1) {
-				//perror("open2");
 				free(content);
 		    	free(filename);
 		    	free(buf);
 		    	return -1;
 			}
 
+			// chiudo il file di output
 			if (close(fdo) == -1) {
-				//perror("open3");
 				free(content);
 		    	free(filename);
 		    	free(buf);
@@ -1268,9 +1226,11 @@ int receiveNFiles(const char *dirname) {
 	    free(content);
 	}
 
+	// libero la memoria
 	free(filename);
 	free(buf);
 
+	// ritorno il numero di file ricevuti dal server
 	return filesCount;
 }
 
@@ -1330,7 +1290,8 @@ int lockFile_aux(const char *pathname) {
 	}
 }
 
-// imposta la cartella sulla quale scrivere i file letti dal server o espulsi in seguito a capacity misses
+/* imposta la cartella sulla quale scrivere i file letti dal server con delle readFile,
+ o espulsi in seguito a un capacity miss provocato da una openFile(O_CREATE) */
 int setDirectory(char* Dir, int rw) {
 	// controllo la validita' dell'argomento
 	if (!Dir || strlen(Dir) >= 256) {
@@ -1338,12 +1299,14 @@ int setDirectory(char* Dir, int rw) {
 		return -1;
 	}
 
+	// imposto la cartella sulla quale scrivere i file espulsi in seguito a delle openFile(O_CREATE)
 	if (rw == 1) {
 		free(writingDirectory);
 		writingDirectory = malloc(strlen(Dir)+1);
 		strncpy(writingDirectory, Dir, strlen(Dir)+1);
 	}
 
+	// imposto la cartella sulla quale scrivere i file letti dal server con delle readFile
 	else {
 		free(readingDirectory);
 		readingDirectory = malloc(strlen(Dir)+1);
@@ -1353,12 +1316,14 @@ int setDirectory(char* Dir, int rw) {
 	return 0;
 }
 
-// consente di abilitare o disabilitare le stampe sullo standard output
+// abilita o disabilita le stampe informative sullo standard output
 void printInfo(int p) {
+	// abilita la stampa
 	if (p) {
 		print = 1;
 	}
 
+	// disabilita la stampa
 	else {
 		print = 0;
 	}
@@ -1442,7 +1407,6 @@ int removeOpenFile(const char *pathname) {
 	}
 
 	// altrimenti, scorri tutta la lista
-	// TO-DO ho cambiato temp in temp->next, controllare che funzioni tutto
 	while (temp->next) {
 		prec = temp;
 		temp = temp->next;
@@ -1508,12 +1472,6 @@ int closeEveryFile() {
 			}	
 		}
 	}
-
-	/*
-	if (openFiles) {
-		free(openFiles);
-	}
-	*/
 
 	return 0;
 }

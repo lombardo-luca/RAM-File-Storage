@@ -44,13 +44,14 @@ typedef struct struct_waiting {
 // struttura dati che contiene gli argomenti da passare ai worker threads
 typedef struct struct_thread {
 	long *args;
-	queueT *queue;
-	logT *logFileT;
-	threadpool_t *pool;
-	pthread_mutex_t *lock;
-	waitingT **waiting;
+	queueT *queue;			// puntatore alla coda dei file nello storage
+	logT *logFileT;			// puntatore alla struct del file di log
+	threadpool_t *pool;		// puntatore alla threadpool
+	pthread_mutex_t *lock;	
+	waitingT **waiting;		// puntatore alla coda dei client in attesa di ottenere la lock su un file
 } threadT;
 
+// funzioni dei thread worker e del thread che gestisce i segnali
 static void serverThread(void *par);
 static void* sigThread(void *par);
 
@@ -59,10 +60,11 @@ int addWaiting(waitingT **waiting, char *file, int fd);
 int removeFirstWaiting(waitingT **waiting, char *file);
 void clearWaiting(waitingT **waiting);
 
-int update(fd_set set, int fdmax);
+// funzioni per il file di log e le statistiche
 int writeLog(logT *logFileT, char *logString);
 int updateStats(logT *logFileT, queueT *queue, int miss);
 void printStats(logT *logFileT);
+
 int parser(char *command, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
 
 // procedure chiamate dal parser, corrispondenti ai comandi inviati dal client
@@ -75,10 +77,11 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 void closeFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
 void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting);
 
-// funzioni ausiliarie
+// funzione ausiliaria
 int sendFile(fileT *f, long fd_c, logT *logFileT);
 
 // funzioni di test
+/*
 int testQueue(queueT *queue) {
 	printf("TEST QUEUE\n");
 	void *buf1 = malloc(256);
@@ -122,17 +125,6 @@ int testQueue(queueT *queue) {
 
 	printf("queue len = %ld (dovrebbe essere 2)\n", getLen(queue));
 
-	/*
-	fileT *dequeueF;
-	dequeueF = dequeue(queue);
-
-	if (dequeueF == NULL) {
-		printf("ERRORE??1\n");
-	}
-
-	destroyFile(dequeueF);
-	*/
-
 	free(buffer);
 	free(buf1);
 
@@ -144,6 +136,7 @@ int testQueue(queueT *queue) {
 
 	return 0;
 }
+*/
 
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
@@ -156,10 +149,10 @@ int main(int argc, char *argv[]) {
 	int pendingQueueSize = 1;				// dimensione della coda d'attesa della threadPool
 	size_t maxFiles = 1;					// massimo numero di file supportati
 	size_t maxSize = 1;						// massima dimensione supportata (in bytes)
-	int sigPipe[2], requestPipe[2];
+	int sigPipe[2], requestPipe[2];			// pipe di comunicazione tra il main e il thread worker/signal handler
 	FILE *configFile;						// file di configurazione per il server
 	FILE *logFile;							// file di log
-	pthread_mutex_t lock;					// lock per le funzioni lockFile e unlockFile
+	pthread_mutex_t lock;					// lock per le funzioni che opperano sul flag O_LOCK dei file
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
 	sig_atomic_t numberOfConnections = 0;		// numero dei client attualmente connessi
 	sig_atomic_t stopIncomingConnections = 0;	// se = 1, non accetta più nuove connessioni dai client
@@ -272,7 +265,7 @@ int main(int argc, char *argv[]) {
 				printf("Errore di configurazione: il numero massimo di file dev'essere maggiore o uguale a 1.\n");
 				fflush(stdout);
 				free(option);
-				fclose(configFile);	// chiudo il file di configurazione
+				fclose(configFile);
 				return 1;
 			}
 
@@ -288,7 +281,7 @@ int main(int argc, char *argv[]) {
 				printf("Errore di configurazione: la dimensione massima dev'essere maggiore o uguale a 1.\n");
 				fflush(stdout);
 				free(option);
-				fclose(configFile);	// chiudo il file di configurazione
+				fclose(configFile);
 				return 1;
 			}
 
@@ -303,7 +296,7 @@ int main(int argc, char *argv[]) {
 				printf("Errore di configurazione: il nome del logFile non puo' essere vuoto.\n");
 				fflush(stdout);
 				free(option);
-				fclose(configFile);	// chiudo il file di configurazione
+				fclose(configFile);
 				return 1;
 			}
 
@@ -315,7 +308,7 @@ int main(int argc, char *argv[]) {
 			if ((logFile = fopen(logName, "w")) == NULL) {
 				perror("logFile open");
 				free(option);
-				fclose(configFile);	// chiudo il file di configurazione
+				fclose(configFile);
 				return 1;
 			}
 
@@ -326,7 +319,7 @@ int main(int argc, char *argv[]) {
 			printf("Errore di configurazione: opzione '%s' non riconosciuta.\n", option);
 			fflush(stdout);
 			free(option);
-			fclose(configFile);	// chiudo il file di configurazione
+			fclose(configFile);
 			return 1;
 		}
 	}
@@ -334,7 +327,7 @@ int main(int argc, char *argv[]) {
 	free(option);
 	fclose(configFile);	// chiudo il file di configurazione
 
-	// creo la struct per i logs e le statistiche e la inizializzo
+	// creo ed inizializzo la struct per i logs e le statistiche
 	logT *logFileT;
 
 	if ((logFileT = (logT*) calloc(1, sizeof(logT))) == NULL) {
@@ -352,7 +345,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-	// scrivo sul logFile(temp->data)->size)
+	// scrivo sul logFile
 	char servStartStr[256] = "Server avviato.\nMax files = ";
 	char maxFilesStr[64];
 	char maxSizeStr[64];
@@ -396,13 +389,13 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	// creo la seconda pipe, ovvero quella tra i worker e i manager
+	// creo la pipe di comunicazione fra i thread worker e il manager
 	if (pipe(requestPipe) == -1) {
 		perror("requestPipe");
 		return 1;
 	}
 
-	// creo sigThread che farà la sigwait sui segnali
+	// creo il thread sigThread che farà la sigwait sui segnali
 	pthread_t st;
 	if (pthread_create(&st, NULL, &sigThread, (void*) &sigPipe[1]) == -1) {
 		perror("pthread_create per st.\n");
@@ -411,13 +404,6 @@ int main(int argc, char *argv[]) {
 
 	// creo la coda di file
 	queueT *queue = createQueue(maxFiles, maxSize);
-
-	/*
-	if (testQueue(queue) == -1) {
-		perror("testQueue");
-		return 1;
-	}
-	*/
 
 	// creo la threadpool
 	threadpool_t *pool = NULL;
@@ -446,8 +432,8 @@ int main(int argc, char *argv[]) {
 	FD_ZERO(&set);
 	FD_ZERO(&tmpset);
 	FD_SET(fd_skt, &set);			// al set da ascoltare aggiungo: il listener,
-	FD_SET(sigPipe[0], &set);		// l'fd di lettura della pipe del sigThread,
-	FD_SET(requestPipe[0], &set);	// e quello della pipe dei worker
+	FD_SET(sigPipe[0], &set);		// l'fd di lettura della pipe fra sigThread e il manager,
+	FD_SET(requestPipe[0], &set);	// e quello della pipe fra i worker e il manager
 
 	// controllo quale fd ha id maggiore
 	fd_max = fd_skt;
@@ -462,21 +448,19 @@ int main(int argc, char *argv[]) {
 	while (!quit) {
 		// copio il set nella variabile temporanea. Bisogna inizializzare ogni volta perché select modifica tmpset
 		tmpset = set;
-		//printf("Prima della select, fd_max = %d\n", fd_max);
-		//fflush(stdout);
 
-		// fd_max+1 -> numero dei descrittori attivi, non l’indice massimo
+		// fd_max+1 è il numero dei descrittori attivi
 		if (select(fd_max+1, &tmpset, NULL, NULL, NULL) == -1) {
 			perror("select server main");
 			return 1;
 		}
 
-		// select OK
+		// la select ha avuto successo
 		else { 
 			// controllo da quale fd ho ricevuto la richiesta
 			for (int fd = 0; fd <= fd_max; fd++) {
 				if (FD_ISSET(fd, &tmpset)) {
-					// se l'ho ricevuta da un sock connect, è una nuova richiesta di connessione
+					// se l'ho ricevuta dal sock connect, è una nuova richiesta di connessione
 					if (fd == fd_skt) {
 						if (!stopIncomingConnections) {
 							if ((fd_c = accept(fd_skt, NULL, 0)) == -1) {
@@ -488,6 +472,7 @@ int main(int argc, char *argv[]) {
 							printf("Nuovo client connesso. fd_c = %d\n", fd_c);
 							fflush(stdout);
 							#endif
+
 							// Scrivo sul logFile
 							char newConStr[25] = "Nuovo client: ";
 							char fdStr[128];
@@ -499,7 +484,7 @@ int main(int argc, char *argv[]) {
 								return -1;
 							}
 
-							// creo la struct da passare come argomento al thread worker
+							// creo ed inizializzo la struct da passare come argomento al thread worker
 							threadT *t = calloc(1, sizeof(threadT));
 							t->args = calloc(1, 3*sizeof(long));
 							t->args[0] = fd_c;
@@ -519,6 +504,7 @@ int main(int argc, char *argv[]) {
 								printf("Task aggiunto alla pool da una nuove connessione: %d\n", fd_c);
 								fflush(stdout);
 								#endif
+
 								numberOfConnections++;
 								continue;
 							}
@@ -530,11 +516,13 @@ int main(int argc, char *argv[]) {
 
 							// coda pendenti piena
 							else {
-								//perror("coda pendenti piena");
+								#ifdef DEBUG
+								perror("coda pendenti piena");
+								#endif
 							}
 
 							if (t->args) {
-							free(t->args);
+								free(t->args);
 							}
 
 							if (t) {
@@ -549,6 +537,7 @@ int main(int argc, char *argv[]) {
 							printf("Nuova connessione rifiutata: il server è in fase di terminazione.\n");
 							fflush(stdout);
 							#endif
+
 							FD_CLR(fd, &set);
 							close(fd);
 						}
@@ -571,22 +560,18 @@ int main(int argc, char *argv[]) {
 							printf("Il worker thread ha chiuso la connessione con un client.\n");
 							fflush(stdout);
 							#endif
-							/*
-							FD_CLR(fdr, &set);
-							if (fdr == fd_max) {
-								fd_max = update(set, fd_max);
-							}
-							*/
 
 							numberOfConnections--;
+
 							#ifdef DEBUG
 							printf("numberOfConnections = %d\n", numberOfConnections);
 							fflush(stdout);
 							#endif
+
 							// ...controllo se devo terminare il server
 							if (stopIncomingConnections && numberOfConnections <= 0) {
 								#ifdef DEBUG
-								printf("Non ci sono altri client connessi, termino...\n");
+								printf("Non ci sono altri client connessi, termino.\n");
 								fflush(stdout);
 								#endif
 								quit = 1;
@@ -598,23 +583,16 @@ int main(int argc, char *argv[]) {
 
 						#ifdef DEBUG
 						printf("Una richiesta singola del client %d e' stata servita.\n", fdr);
-						printf("Riaggiungo il client %d al set.\n", fdr);
 						fflush(stdout);
 						#endif
+
 						// altrimenti riaggiungo il descrittore al set, in modo che possa essere servito nuovamente
 						FD_SET(fdr, &set);
 
 						
 						if (fdr > fd_max) {
 							fd_max = fdr;
-							#ifdef DEBUG
-							printf("Aggiorno fd_max = %d\n", fdr);
-							fflush(stdout);
-							#endif
 						}
-						
-
-						//fd_max = update(set, fd_max);
 
 						continue;	
 					}
@@ -633,7 +611,7 @@ int main(int argc, char *argv[]) {
 
 							#ifdef DEBUG
 							printf("Ricevuto un segnale di stop alle nuove connessioni.\n");
-							printf("numberOfConnections = %d\n", numberOfConnections);
+							printf("Numero di connessioni attive: %d\n", numberOfConnections);
 							fflush(stdout);
 							#endif
 
@@ -648,6 +626,7 @@ int main(int argc, char *argv[]) {
 							printf("Ricevuto un segnale di terminazione immediata.\n");
 							fflush(stdout);
 							#endif
+
 							quit = 1;
 						}
 
@@ -665,9 +644,8 @@ int main(int argc, char *argv[]) {
 						if (fd > fd_max) {
 							fd_max = fd;
 						}
-						//fd_max = update(set, fd_max);
 
-						// creo la struct da passare come argomento al thread worker
+						// creo ed inizializzo la struct da passare come argomento al thread worker
 						threadT *t = calloc(1, sizeof(threadT));
 						t->args = calloc(1, 3*sizeof(long));
 						t->args[0] = fd;
@@ -683,7 +661,9 @@ int main(int argc, char *argv[]) {
 
 						// task aggiunto alla pool con successo
 						if (r == 0) {
-							//printf("Task aggiunto alla pool da un client gia' connesso: %d\n", fd);
+							#ifdef DEBUG
+							printf("Task aggiunto alla pool da un client gia' connesso: %d\n", fd);
+							#endif
 							continue;
 						}
 
@@ -694,7 +674,9 @@ int main(int argc, char *argv[]) {
 
 						// coda pendenti piena
 						else {
-							//perror("coda pendenti piena");
+							#ifdef DEBUG
+							perror("coda pendenti piena");
+							#endif
 						}
 
 						if (t->args) {
@@ -706,7 +688,6 @@ int main(int argc, char *argv[]) {
 						}
 
 						close(fd);
-
 						continue;
 					}
 				}	
@@ -715,17 +696,16 @@ int main(int argc, char *argv[]) {
 	}
 
 	destroyThreadPool(pool, 0);		// notifico a tutti i thread workers di terminare
-	clearWaiting(&waiting);
-
-	// stampo il sunto delle operazioni effettuate durante l'esecuzione del server
-	printStats(logFileT);
+	clearWaiting(&waiting);		// distruggo la coda dei client in attesa di ottenere una lock
+	printStats(logFileT);	// stampo il sunto delle operazioni effettuate durante l'esecuzione del server
 
 	// stampo i file contenuti nello storage al momento della chiusura del server
 	if (printQueue(queue) == -1) {
 		perror("printQueue");
 		return 1;
 	}
-	destroyQueue(queue);			// distruggo la coda di file e libero la memoria
+
+	destroyQueue(queue);	// distruggo la coda di file nello storage e libero la memoria
 
 	if (pthread_join(st, NULL) != 0) {
 		perror("pthread_join.\n");
@@ -735,7 +715,6 @@ int main(int argc, char *argv[]) {
 	// chiudo il file di log
 	if (logFileT->file) {
 		fclose(logFileT->file);
-		//free(logFileT->file);
 	}
 
 	if (&logFileT->m) {
@@ -751,9 +730,9 @@ int main(int argc, char *argv[]) {
 	printf("File Storage Server terminato.\n");
 	fflush(stdout);
 	return 0;
-	//exit(EXIT_SUCCESS);
 }
 
+// funzione passata come "task" dei thread worker della threadPool
 static void serverThread(void *par) {
 	// controllo la validita' dell'argomento
 	if (!par) {
@@ -826,7 +805,8 @@ static void serverThread(void *par) {
 	memset(buf, '\0', CMDSIZE);
 
 	int n;
-	if ((n = read(fd_c, buf, CMDSIZE)) == -1) {	// leggi il messaggio del client	
+	// leggo il messaggio del client	
+	if ((n = read(fd_c, buf, CMDSIZE)) == -1) {	
 		perror("read");
 
 		goto cleanup;
@@ -837,6 +817,7 @@ static void serverThread(void *par) {
 		printf("SERVER THREAD: chiudo la connessione col client\n");
 		fflush(stdout);
 		#endif
+
 		close(fd_c);
 
 		int close = -1;
@@ -855,7 +836,6 @@ static void serverThread(void *par) {
 		strncat(closeConStr, ".\n", 3);
 		if (writeLog(logFileT, closeConStr) == -1) {
 			perror("writeLog");
-			goto cleanup;
 		}
 
 		goto cleanup;
@@ -871,6 +851,7 @@ static void serverThread(void *par) {
 		printf("SERVER THREAD: errore parser.\n");
 		fflush(stdout);
 		#endif
+
 		goto cleanup;
 	}
 
@@ -896,16 +877,15 @@ static void serverThread(void *par) {
 		perror("writeLog");
 	}
 
-	// ripulisci la memoria
+	// ripulisco la memoria
 	cleanup: {
-		//printf("cleanup SERVER THREAD\n");
-		//fflush(stdout);
 		if (args) {
 			free(args);
 		}
 	}
 }
 
+// thread che svolge la funzione di "signal handler"
 static void* sigThread(void *par) {
 	int *p = (int*) par;
 	int fd_pipe = *p;
@@ -953,18 +933,6 @@ static void* sigThread(void *par) {
 	}
 }
 
-int update(fd_set set, int fdmax) {
-	for (int i = fdmax-1; i >= 0; --i) {
-		if (FD_ISSET(i, &set)) {
-			return i;
-		}
-	}
-
-	// TO-DO rimuovere questo debug
-	assert(1 == 0);
-	return -1;
-}
-
 // scrive un messaggio di log sul logFile
 int writeLog(logT *logFileT, char *logString) {
 	// controllo la validita' degli argomenti
@@ -973,6 +941,7 @@ int writeLog(logT *logFileT, char *logString) {
 		return -1;
 	}
 	
+	// scrivo sul file di log
 	pthread_mutex_lock(&logFileT->m);
 	if (fwrite(logString, 1, strlen(logString)+1, logFileT->file) == -1) {
 		perror("fwrite");
@@ -1054,7 +1023,8 @@ void printStats(logT *logFileT) {
 
 // effettua il parsing dei comandi
 int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mutex_t *lock, waitingT **waiting) {
-	if (!command || !queue || !logFileT) {
+	// controllo la validita' degli argomenti
+	if (!command || !queue || !logFileT || !waiting) {
 		errno = EINVAL;
 		return -1;
 	}
@@ -1097,7 +1067,7 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mute
 		token3 = strtok_r(NULL, ":", &save);
 		size_t sz = (size_t) strtol(token3, NULL, 0);
 
-		// l'operazione di append chiama la stessa procedura di writeFile ma con l'ultima variabile = 1
+		// l'operazione di append chiama la stessa procedura di writeFile, ma con l'ultima variabile = 1
 		writeFile(token2, sz, queue, fd_c, logFileT, 1);
 	}
 
@@ -1129,6 +1099,7 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mute
 		printf("PARSER: comando non riconosciuto.\n");
 		fflush(stdout);
 		#endif
+
 		return -1;
 	}
 
@@ -1139,8 +1110,8 @@ int parser(char *command, queueT *queue, long fd_c, logT* logFileT, pthread_mute
 void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
-	char es[3] = "es";		// - - - - - - - - - - - - - - - - - - -  se un file e' stato espulso dalla cache
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
+	char es[3] = "es";		// messaggio che verra' mandato al client se un file e' stato espulso dalla cache
 	void *buf = NULL;
 
 	memcpy(res, ok, 3);
@@ -1239,9 +1210,6 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 
 	// invia risposta al client
 	send:
-		//printf("openFile: mando risposta al client\n");
-		//fflush(stdout);
-		
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
 		if (writen(fd_c, buf, 3) == -1) {
@@ -1338,7 +1306,7 @@ void openFile(char *filepath, int flags, queueT *queue, long fd_c, logT *logFile
 void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
 	void *buf = NULL;
 
 	memcpy(res, ok, 3);
@@ -1437,7 +1405,7 @@ void readFile(char *filepath, queueT *queue, long fd_c, logT *logFileT) {
 void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
 	void *buf = NULL;
 	int n = strtol(numStr, NULL, 0);
 
@@ -1449,8 +1417,6 @@ void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 		memcpy(res, er, 3);
 	}
 	
-	//printf("readNFiles: mando risposta al client\n");
-	//fflush(stdout);
 	buf = malloc(BUFSIZE);
 	memcpy(buf, res, 3);
 
@@ -1483,7 +1449,7 @@ void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 	}
 
 	else {
-		// se n = 0, invia tutti i file memorizzati nel server
+		// se n = 0, invia tutti i file memorizzati nel server per i quali il client ha i permessi necessari
 		int oldN = n;
 		if (n == 0) {
 			n = getLen(queue);
@@ -1507,16 +1473,15 @@ void readNFiles(char *numStr, queueT *queue, long fd_c, logT *logFileT) {
 			}
 
 			if (enqueue(queue, f) == -1) {
-				//perror("enqueue");
+				perror("enqueue");
 				goto cleanup;
 			}
 
 			i++;
 		}
 		
-		// avverto il client che ho finito di mandare file
+		// avverto il client che ho finito di mandare file, mandando la stringa ".FINE"
 		char fine[6] = ".FINE";
-		//printf("invio %s\n", fine);
 		memset(buf, 0, BUFSIZE);
 		memcpy(buf, fine, 6);
 
@@ -1554,8 +1519,8 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 	void *res = malloc(BUFSIZE);
 	void *buf = NULL;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
-	char es[3] = "es";		// - - - - - - - - - - - - - - - - - - -  se un file e' stato espulso dalla cache
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
+	char es[3] = "es";		// messaggio che verra' mandato al client se un file e' stato espulso dalla cache
 	int found = 0;
 	fileT *espulso = NULL;
 	void *content = NULL;
@@ -1586,14 +1551,14 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 	}
 
 	#ifdef DEBUG
-	printf("writeFile: found = %d, append = %d\n", found, append);	
+	printf("writeFile: found: %d Append: %d\n", found, append);	
 	fflush(stdout);
 	#endif
 
 	// il file e' presente nel server
 	if (found) {
 		#ifdef DEBUG
-		printf("Il file e' locked? %d Owner = %d Client = %ld\n", findF->O_LOCK, findF->owner, fd_c);
+		printf("Modalita' locked del file: %d Owner: %d Client: %ld\n", findF->O_LOCK, findF->owner, fd_c);
 		fflush(stdout);
 		#endif
 
@@ -1641,9 +1606,6 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 
 	// invia risposta al client
 	send:
-		//printf("writeFile: mando risposta al client\n");
-		//fflush(stdout);
-		
 		buf = malloc(BUFSIZE);
 		memcpy(buf, res, 3);
 
@@ -1715,9 +1677,8 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 				}
 			}
 
-			// avverto il client che ho finito di mandare file
+			// avverto il client che ho finito di mandare file, inviando la stringa ".FINE"
 			char fine[6] = ".FINE";
-			//printf("invio %s\n", fine);
 			memset(buf, 0, BUFSIZE);
 			memcpy(buf, fine, 6);
 
@@ -1832,7 +1793,7 @@ void writeFile(char *filepath, size_t size, queueT *queue, long fd_c, logT *logF
 void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
 	void *buf = NULL;
 
 	memcpy(res, ok, 3);
@@ -1959,7 +1920,7 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_mutex_t *lock, waitingT **waiting) {
 	void *res = malloc(BUFSIZE);
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
 	void *buf = NULL;
 
 	memcpy(res, ok, 3);
@@ -1984,7 +1945,6 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 
 	// resetto il flag O_LOCK sul file
 	if (unlockFileInQueue(queue, filepath, fd_c) != 0) {
-		//perror("unlockFileInQueue");
 		memcpy(res, er, 3);
 		goto send;
 	}
@@ -2031,19 +1991,20 @@ void unlockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthrea
 				perror("writeLog");
 			}
 
-			// segnalo a un client nella lista d'attesa che il file e' stato unlockato
 			if (pthread_mutex_lock(lock) == -1) {
 				perror("lock");
 				goto cleanup;
 			}
 
+			// segnalo a un client nella lista d'attesa che il file e' stato unlockato
 			long wait = -1;
 			wait = removeFirstWaiting(waiting, filepath);
 			if (wait != -1) {
 				#ifdef DEBUG
-				printf("Sveglio il client %ld\n", wait);
+				printf("Sveglio il client %ld.\n", wait);
 				fflush(stdout);
 				#endif
+
 				lockFile(filepath, queue, wait, logFileT, lock, waiting);
 			}
 
@@ -2071,7 +2032,7 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 	void *res = malloc(BUFSIZE);
 	int found = 0;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
 
 	memcpy(res, ok, 3);
 
@@ -2093,7 +2054,6 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 	if (found) {
 		// la funzione chiamata controlla se il client ha i permessi per poter chiudere il file
 		if (closeFileInQueue(queue, filepath, fd_c) == -1) {
-			//perror("closeFileInQueue");
 			memcpy(res, er, 3);
 		}
 
@@ -2147,17 +2107,17 @@ void closeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthread
 			perror("writeLog");
 		}	
 
-		// segnalo a un client nella lista d'attesa che il file e' stato unlockato
 		if (pthread_mutex_lock(lock) == -1) {
 			perror("lock");
 			goto cleanup;
 		}
 
+		// segnalo a un client nella lista d'attesa che il file e' stato unlockato
 		long wait = -1;
 		wait = removeFirstWaiting(waiting, filepath);
 		if (wait != -1) {
 			#ifdef DEBUG
-			printf("Sveglio il client %ld\n", wait);
+			printf("Sveglio il client %ld.\n", wait);
 			fflush(stdout);
 			#endif
 			lockFile(filepath, queue, wait, logFileT, lock, waiting);
@@ -2183,7 +2143,7 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 	void *res = malloc(BUFSIZE);
 	int found = 0;
 	char ok[3] = "ok";		// messaggio che verra' mandato al client se l'operazione ha avuto successo
-	char er[3] = "er";		// - - - - - - - - - - - - - - - - - - -  se c'e' stato un errore
+	char er[3] = "er";		// messaggio che verra' mandato al client se c'e' stato un errore
 
 	memcpy(res, ok, 3);
 
@@ -2260,17 +2220,17 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 			perror("writeLog");
 		}	
 
-		// segnalo a un client nella lista d'attesa che il file e' stato unlockato
 		if (pthread_mutex_lock(lock) == -1) {
 			perror("lock");
 			goto cleanup;
 		}
 
+		// segnalo a un client nella lista d'attesa che il file e' stato rimosso
 		long wait = -1;
 		wait = removeFirstWaiting(waiting, filepath);
 		if (wait != -1) {
 			#ifdef DEBUG
-			printf("Sveglio il client %ld\n", wait);
+			printf("Sveglio il client %ld.\n", wait);
 			fflush(stdout);
 			#endif
 			lockFile(filepath, queue, wait, logFileT, lock, waiting);
@@ -2297,22 +2257,26 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	buf = malloc(BUFSIZE);
 
 	// invio prima il filepath...
-	//printf("invio il filepath: %s\n", f->filepath);
-	//fflush(stdout);
+	#ifdef DEBUG
+	printf("invio il filepath: %s\n", f->filepath);
+	fflush(stdout);
+	#endif
+
 	memset(buf, 0, BUFSIZE);
 	memcpy(buf, f->filepath, strlen(f->filepath)+1);
-	//printf("memcpy fatta\n");
-	fflush(stdout);
+
 	if (writen(fd_c, buf, BUFSIZE) == -1) {
 		perror("writen");
 		free(buf);
 		return -1;
 	}
 
-	//printf("invio la size: %zu\n", f->size);
-	//fflush(stdout);
-
 	// ... poi la dimensione del file...
+	#ifdef DEBUG
+	printf("invio la size: %zu\n", f->size);
+	fflush(stdout);
+	#endif
+
 	if (writen(fd_c, &f->size, sizeof(size_t)) == -1) {
 		perror("writen");
 		free(buf);
@@ -2349,14 +2313,9 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 	return 0;
 }
 
-// aggiunge una coppia client/file alla coda dei client in attesa di ottenre la lock
+// aggiunge una coppia client/file alla coda dei client in attesa di ottenere la lock
 int addWaiting(waitingT **waiting, char *file, int fd) {
-	#ifdef DEBUG
-	printf("Sono nella addWaiting\n");
-	fflush(stdout);
-	#endif
-
-	// controllo la validita' degli argomenti
+	// controllo la validita' dell'argomento
 	if (!file) {
 		return -1;
 	}
@@ -2386,8 +2345,8 @@ int addWaiting(waitingT **waiting, char *file, int fd) {
 		*waiting = new;
 
 		#ifdef DEBUG
-		printf("la lista era vuota, aggiungo il file come primo della lista\n");
-		printf("Adesso il primo el e' %ld %s\n", new->fd, new->file);
+		printf("La lista era vuota, aggiungo il file come primo della lista.\n");
+		printf("Adesso il primo elemento e' %ld %s.\n", new->fd, new->file);
 		#endif
 	}
 
@@ -2405,25 +2364,13 @@ int addWaiting(waitingT **waiting, char *file, int fd) {
 
 // dato un file, restituisce il primo client in attesa di ottenere la lock su di esso
 int removeFirstWaiting(waitingT **waiting, char *file) {
-	#ifdef DEBUG
-	printf("Sono nella removeFirstWaiting\n");
-	fflush(stdout);
-	#endif
-
-	// controllo la validita' degli argomenti
+	// controllo la validita' dell'argomento
 	if (!file) {
-		#ifdef DEBUG
-		printf("EINVAL\n");
-		fflush(stdout);
-		#endif
 		return -1;
 	}
 
+	// lista vuota
 	if (!(*waiting)) {
-		#ifdef DEBUG
-		printf("lista vuota\n");
-		fflush(stdout);
-		#endif
 		return -1;
 	}
 
@@ -2432,11 +2379,6 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 	long res = -1;
 
 	// controllo se l'elemento da rimuovere e' il primo della lista
-	#ifdef DEBUG
-	printf("comparo %s! e %s!\n", temp->file, file);
-	fflush(stdout);
-	#endif
-
 	if (strcmp(temp->file, file) == 0) {
 		res = temp->fd;
 		*waiting = temp->next;
@@ -2444,7 +2386,7 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 		free(temp);
 
 		#ifdef DEBUG
-		printf("Ho trovato res = %ld\n", res);
+		printf("Ho trovato res = %ld.\n", res);
 		fflush(stdout);
 		#endif
 
@@ -2456,10 +2398,6 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 		prec = temp;
 		temp = temp->next;
 
-		#ifdef DEBUG
-		printf("comparo %s! e %s!\n", temp->file, file);
-		fflush(stdout);
-		#endif
 		if (strcmp(temp->file, file) == 0) {
 			res = temp->fd;
 			prec->next = temp->next;
@@ -2470,12 +2408,13 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 			printf("Ho trovato res = %ld\n", res);
 			fflush(stdout);
 			#endif
+
 			return res;
 		}
 	}
 
 	#ifdef DEBUG
-	printf("Non ho trovato res\n");
+	printf("Non ho trovato res.\n");
 	fflush(stdout);
 	#endif
 
@@ -2502,7 +2441,7 @@ void clearWaiting(waitingT **waiting) {
 
 	else {
 		#ifdef DEBUG
-		printf("la lista era vuota.\n");
+		printf("La lista era vuota.\n");
 		#endif
 	}
 }

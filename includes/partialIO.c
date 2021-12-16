@@ -17,8 +17,6 @@
 
 #include <partialIO.h>
 
-#include <errno.h>
-
 ssize_t  // Read "n" bytes from a descriptor 
 readn(int fd, void *ptr, size_t n) {  
    size_t   nleft;
@@ -52,52 +50,3 @@ writen(int fd, void *ptr, size_t n) {
    }
    return(n - nleft); // return >= 0 
 }
-
-/*
-ssize_t readn(int fd, void *buf, size_t size) {
-    ssize_t readn = 0, r = 0;
-
-    while ( readn < size ){
-
-        if ( (r = read(fd, buf, size)) == -1 ){
-            if( errno == EINTR )
-                // se la read è stata interrotta da un segnale riprende
-                continue;
-            else{
-                perror("Readn");
-                return -1;
-            }
-        }
-        if ( r == 0 )
-            return readn; // Nessun byte da leggere rimasto
-
-        readn += r;
-    }
-
-    return readn;
-}
-
-ssize_t writen(int fd, void *buf, size_t nbyte){
-    ssize_t writen = 0, w = 0;
-
-    while ( writen < nbyte ){
-        if ( (w = write(fd, buf, nbyte) ) == -1 ){
-            // se la write è stata interrotta da un segnale riprende //
-            if ( errno == EINTR )
-                continue;
-            else if ( errno == EPIPE )
-                break;
-            else{
-                perror("Writen");
-                return -1;
-            }
-        }
-        if( w == 0 )
-            return writen;
-
-        writen += w;
-    }
-
-    return writen;
-}
-*/

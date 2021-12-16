@@ -9,6 +9,7 @@
 
 #include <fileQueue.h>
 
+// crea un nuovo fileT
 fileT* createFileT(char *filepath, int O_LOCK, int owner, int open) {
     // controllo la validità degli argomenti
     if (!filepath || O_LOCK < 0 || O_LOCK > 1 || open < 0 || open > 1) {
@@ -45,6 +46,7 @@ fileT* createFileT(char *filepath, int O_LOCK, int owner, int open) {
     return f;
 }
 
+// scrive del contenuto (in append) su un fileT
 int writeFileT(fileT *f, void *content, size_t size) {
     // controllo la validità degli argomenti
     if (!f || !content || size < 0) {
@@ -63,11 +65,10 @@ int writeFileT(fileT *f, void *content, size_t size) {
     memcpy((char*)f->content+f->size, content, size);
     f->size += (size);
 
-    //printf("writeFileT: ho scritto il file %s, di dimensione %ld\n", f->filepath, f->size);
-
     return 0;
 }
 
+// distrugge un fileT e ne libera la memoria
 void destroyFile(fileT *f) {
     if (f) {
         if (f->filepath) {
@@ -82,6 +83,7 @@ void destroyFile(fileT *f) {
     }
 }
 
+// crea una coda di fileT
 queueT* createQueue(size_t maxLen, size_t maxSize) {
     queueT *queue; 
 
@@ -108,6 +110,7 @@ queueT* createQueue(size_t maxLen, size_t maxSize) {
     return queue;
 }
 
+// inserisce un fileT nella coda
 int enqueue(queueT *queue, fileT* data) {
     // controllo la validità degli argomenti
     if (!queue || !data) {
@@ -123,8 +126,6 @@ int enqueue(queueT *queue, fileT* data) {
         pthread_mutex_unlock(&queue->m);
         return -1;
     }
-
-    //printf("enqueue: voglio aggiungere il file %s di dimensione %ld\n", data->filepath, data->size);
 
     // se non c'è abbastanza spazio, errore
     if (queue->size + data->size > queue->maxSize) {
@@ -164,13 +165,11 @@ int enqueue(queueT *queue, fileT* data) {
     queue->len++;
     queue->size += data->size;
 
-    //printf("enqueue: aggiunto.\n");
-
     pthread_mutex_unlock(&queue->m);
     return 0;
 }
 
-// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
+// estrae un fileT dalla coda e lo restituisce
 fileT* dequeue(queueT *queue) {
     // controllo la validità dell'argomento
     if (!queue) {
@@ -201,15 +200,13 @@ fileT* dequeue(queueT *queue) {
     queue->size -= data->size;
     assert(queue->len >= 0);
 
-    //destroyFile(temp->data);
     free(temp);
-
-    //printf("dequeue: ho rimosso il file %s di dimensione %ld\n", data->filepath, data->size);
 
     pthread_mutex_unlock(&queue->m);
     return data;
 }
 
+// estrae un fileT dalla coda, senza restituirlo
 void voiDequeue(queueT *queue) {
     // controllo la validità dell'argomento
     if (!queue) {
@@ -229,8 +226,6 @@ void voiDequeue(queueT *queue) {
     nodeT *temp = NULL;
     temp = queue->head;
 
-    //printf("voiDequeue: rimuovo il file %s di dimensione %ld\n", (temp->data)->filepath, (temp->data)->size);
-
     queue->head = (queue->head)->next;
 
     if (queue->head == NULL) {
@@ -248,6 +243,7 @@ void voiDequeue(queueT *queue) {
     pthread_mutex_unlock(&queue->m);
 }
 
+// stampa il contenuto della coda
 int printQueue(queueT *queue) {
     // controllo la validità dell'argomento
     if (!queue) {
@@ -258,8 +254,6 @@ int printQueue(queueT *queue) {
     pthread_mutex_lock(&queue->m);
 
     printf("Lista dei file contenuti nello storage al momento della chiusura del server:\n");
-    //printf("Lunghezza attuale della coda: %ld\n", queue->len);
-    //printf("Dimensione attuale della coda: %ld\n", queue->size);
 
     nodeT *temp = queue->head;
 
@@ -275,6 +269,7 @@ int printQueue(queueT *queue) {
     return 0;
 }
 
+// locka un fileT contenuto nella coda
 int lockFileInQueue(queueT *queue, char *filepath, int owner) {
     // controllo la validità degli argomenti
     if (!queue || !filepath) {
@@ -299,8 +294,6 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner) {
         // se trovo l'elemento cercato...
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             found = 1;
-
-           //printf("LOCKFILE: locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, owner);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != owner) {
@@ -327,6 +320,7 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner) {
     return 0;
 }
 
+// resetta il flag O_LOCK di un file nella coda
 int unlockFileInQueue(queueT *queue, char *filepath, int owner) {
     // controllo la validità degli argomenti
     if (!queue || !filepath) {
@@ -351,8 +345,6 @@ int unlockFileInQueue(queueT *queue, char *filepath, int owner) {
         // se trovo l'elemento cercato...
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             found = 1;
-
-            //printf("UNLOCKFILE: locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, owner);
 
             // se il file non e' in modalita' locked, non serve fare nulla
             if (!((temp->data)->O_LOCK)) {
@@ -388,6 +380,7 @@ int unlockFileInQueue(queueT *queue, char *filepath, int owner) {
     return 0;
 }
 
+// apre un fileT contenuto nella coda
 int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
     // controllo la validità degli argomenti
     if (!queue || !filepath || O_LOCK < 0 || O_LOCK > 3) {
@@ -412,8 +405,6 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             // ho trovato il file che cercavo
             found = 1;
-
-            //printf("openFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != client) {
@@ -443,6 +434,7 @@ int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client) {
     return 0;
 }
 
+// chiude un fileT contenuto nella coda
 int closeFileInQueue(queueT *queue, char *filepath, int client) {
     // controllo la validità degli argomenti
     if (!queue || !filepath) {
@@ -467,8 +459,6 @@ int closeFileInQueue(queueT *queue, char *filepath, int client) {
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             // ho trovato il file che cercavo
             found = 1;
-
-            //printf("closeFile: file locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // se il file e' stato messo in modalita' locked da un client diverso, errore
             if ((temp->data)->O_LOCK && (temp->data)->owner != client) {
@@ -495,6 +485,7 @@ int closeFileInQueue(queueT *queue, char *filepath, int client) {
     return 0;
 }
 
+// scrive del contenuto su un fileT all'interno della coda
 int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client) {
     // controllo la validità degli argomenti
     if (!queue || !filepath || !content) {
@@ -527,8 +518,6 @@ int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, 
             // ho trovato il file che cercavo
             found = 1;
 
-            //printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
-
             // controllo se il client ha i permessi per scrivere sul file
             if ((temp->data)->open == 0 || ((temp->data)->O_LOCK && (temp->data)->owner != client)) {
                 errno = EPERM;
@@ -547,6 +536,7 @@ int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, 
 
             // sovrascrivo il file
             memcpy((temp->data)->content, content, size);
+
             // aggiorno la dimensione della coda e del file
             queue->size = (queue->size) - ((temp->data)->size) + size;
             (temp->data)->size = size;
@@ -564,6 +554,7 @@ int writeFileInQueue(queueT *queue, char *filepath, void *content, size_t size, 
     return 0;
 }
 
+// scrive del contenuto in append su un fileT all'interno della coda
 int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size, int client) {
     // controllo la validità degli argomenti
     if (!queue || !filepath || !content) {
@@ -595,8 +586,6 @@ int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size,
         if (strcmp(filepath, (temp->data)->filepath) == 0) {
             // ho trovato il file che cercavo
             found = 1;
-
-            //printf("Il file e' locked? %d Owner = %d Client = %d\n", (temp->data)->O_LOCK, (temp->data)->owner, client);
 
             // controllo se il client ha i permessi per scrivere sul file
             if ((temp->data)->open == 0 || ((temp->data)->O_LOCK && (temp->data)->owner != client)) {
@@ -632,6 +621,7 @@ int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size,
     return 0;
 }
 
+// rimuove un fileT dalla coda
 int removeFileFromQueue(queueT *queue, char *filepath, int client) {
     // controllo la validità degli argomenti
     if (!queue || !filepath) {
@@ -685,8 +675,6 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
             queue->len--;
             queue->size -= (temp->data)->size;
             assert(queue->len >= 0);
-
-            //printf("DEBUG ho rimosso un elemento, queue->Len = %zu\n", queue->len);
             
             // libero la memoria
             destroyFile(temp->data);
@@ -710,7 +698,7 @@ int removeFileFromQueue(queueT *queue, char *filepath, int client) {
     return 0;
 }
 
-// attenzione: il fileT* restituito va distrutto manualmente per liberarne la memoria
+// cerca un fileT all'interno della coda e ne restituisce una copia se trovato
 fileT* find(queueT *queue, char *filepath) {
     // controllo la validità degli argomenti
     if (!queue || !filepath) {
@@ -759,6 +747,7 @@ fileT* find(queueT *queue, char *filepath) {
     return res;
 }
 
+// restituisce la lunghezza attuale della coda
 size_t getLen(queueT *queue) {
     // controllo la validità dell'argomento
     if (!queue) {
@@ -775,6 +764,7 @@ size_t getLen(queueT *queue) {
     return len;
 }
 
+// restituisce la dimensione attuale della coda
 size_t getSize(queueT *queue) {
     // controllo la validità dell'argomento
     if (!queue) {
@@ -791,12 +781,11 @@ size_t getSize(queueT *queue) {
     return size;
 }
 
+// distrugge la coda e ne libera la memoria
 void destroyQueue(queueT *queue) {
     if (queue) {
          // se la coda non è vuota, svuotala e libera la memoria per ogni elemento
         while (queue->len > 0) {
-            //printf("DestroyQueue: queue len = %ld\n", queue->len);
-
             errno = 0;
             voiDequeue(queue);
             if (errno) {

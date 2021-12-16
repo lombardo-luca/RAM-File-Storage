@@ -36,7 +36,7 @@ typedef struct {
 fileT* createFileT(char *filepath, int O_LOCK, int owner, int open);
 
 /**
- * Scrive del contenuto su un fileT creato con createFileT.
+ * Scrive del contenuto (in append) su un fileT creato con createFileT.
  * \param f -> fileT sul quale scrivere
  * \param content -> puntatore al buffer che contiene i dati da scrivere
  * \size -> dimensione in bytes del contenuto da scrivere
@@ -51,7 +51,7 @@ int writeFileT(fileT *f, void *content, size_t size) ;
 void destroyFile(fileT *f);
 
 /**
- * Alloca ed inizializza una coda. Dev'essere chiamata da un solo thread.
+ * Alloca ed inizializza una coda di fileT. Dev'essere chiamata da un solo thread.
  * \param maxLen -> lunghezza massima della coda (numero di file)
  * \param maxSize -> dimensione massima della coda (in bytes)
  * \retval -> puntatore alla coda allocata, NULL se errore
@@ -87,7 +87,7 @@ int enqueue(queueT *queue, fileT* data);
 int printQueue(queueT *queue);
 
 /**
- * Imposta un fileT all'interno della coda in modalita' locked. Fallisce se il file e' stato messo in modalita' locked da un client diverso.
+ * Imposta un fileT contenuto nella coda in modalita' locked. Fallisce se il file e' stato messo in modalita' locked da un client diverso.
  * \param queue -> puntatore alla coda che contiene il fileT
  * \param filepath -> path assoluto (identificatore) del fileT sul quale impostare la modalita' locked
  * \param owner -> file descriptor del client che ha richiesto l'operazione di lock
@@ -105,7 +105,7 @@ int lockFileInQueue(queueT *queue, char *filepath, int owner);
 int unlockFileInQueue(queueT *queue, char *filepath, int owner);
 
 /**
- * Apre un fileT all'interno della coda. Fallisce se il file e' stato messo in modalita' locked da un client diverso.
+ * Apre un fileT contenuto nella coda. Fallisce se il file e' stato messo in modalita' locked da un client diverso.
  * \param queue -> puntatore alla coda che contiene il fileT da aprire
  * \param filepath -> path assoluto (identificatore) del fileT da aprire
  * \param O_LOCK -> se = 1, il file viene aperto in modalita' locked, se = 0 no
@@ -115,7 +115,7 @@ int unlockFileInQueue(queueT *queue, char *filepath, int owner);
 int openFileInQueue(queueT *queue, char *filepath, int O_LOCK, int client);
 
 /**
- * Chiude un fileT all'interno della coda. Se il file non era stato precedentemente aperto, termina comunque con successo.
+ * Chiude un fileT contenuto nella coda. Se il file non era stato precedentemente aperto, termina comunque con successo.
  * Fallisce se il file e' stato messo in modalita' locked da un client diverso.
  * \param queue -> puntatore alla coda che contiene il fileT da chiudere
  * \param filepath -> path assoluto (identificatore) del fileT da chiudere
@@ -159,10 +159,10 @@ int appendFileInQueue(queueT *queue, char *filepath, void *content, size_t size,
 int removeFileFromQueue(queueT *queue, char *filepath, int client);
 
 /**
- * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore).
+ * Cerca un fileT nella coda a partire dal suo path assoluto (identificatore) e ne restituisce una copia se trovato.
  * \param queue -> puntatore alla coda sulla quale cercare il fileT
  * \param filepath -> path assoluto del fileT da cercare 
- * \retval -> puntatore al fileT se trovato, NULL se non trovato o errore (setta errno)
+ * \retval -> puntatore a una copia del fileT se trovato, NULL se non trovato o errore (setta errno)
  */
 fileT* find(queueT *queue, char *filepath);
 
