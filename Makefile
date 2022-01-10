@@ -54,7 +54,7 @@ client.o: client.c
 clean		: 
 	rm -f $(TARGETS)
 cleanall	: clean
-	\rm -f *.o *~ *.a ./mysock ./includes/*.o
+	\rm -f *.o *.a ./mysock ./includes/*.o ./config/*.txt ./logs/*.txt
 
 test1	:
 	printf "threadpoolSize:1\npendingQueueSize:10\nsockName:mysock\nmaxFiles:10000\nmaxSize:128000\nlogFile:logs" > config/config.txt
