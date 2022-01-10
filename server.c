@@ -80,64 +80,6 @@ void removeFile(char *filepath, queueT* queue, long fd_c, logT *logFileT, pthrea
 // funzione ausiliaria
 int sendFile(fileT *f, long fd_c, logT *logFileT);
 
-// funzioni di test
-/*
-int testQueue(queueT *queue) {
-	printf("TEST QUEUE\n");
-	void *buf1 = malloc(256);
-	fileT *f1, *f2;
-	char str1[256] = "contenutofile1";
-	memcpy(buf1, str1, 15);
-	 
-	void *buffer = malloc(256);
-    FILE* ipf = fopen("test/file1.txt", "rb");
-    int r = fread(buffer, 1, 256, ipf);
-    fclose(ipf);
-
-	if ((f1 = createFileT("test/file1.txt", 0, 0, 0)) == NULL) {
-		perror("createFileT f1");
-		return -1;
-	}
-
-	if (writeFileT(f1, buffer, r) == -1) {
-		perror("writeFileT f1");
-		return -1;
-	}	
-
-	printf("queue len = %ld\n", getLen(queue));
-
-	if (enqueue(queue, f1) != 0) {
-		//perror("enqueue f1");
-		return -1;
-	}
-
-	printf("queue len = %ld (dovrebbe essere 1)\n", getLen(queue));
-
-	if ((f2 = createFileT("test/file2.txt", 1, 5, 0)) == NULL) {
-		perror("createFileT f1");
-		return -1;
-	}
-
-	if (enqueue(queue, f2) != 0) {
-		//perror("enqueue f2");
-		return -1;
-	}
-
-	printf("queue len = %ld (dovrebbe essere 2)\n", getLen(queue));
-
-	free(buffer);
-	free(buf1);
-
-	if (printQueue(queue) == -1) {
-		perror("printQueue");
-		return -1;
-	}
-	printf("FINE TEST QUEUE\n");
-
-	return 0;
-}
-*/
-
 int main(int argc, char *argv[]) {
 	int fd_skt, fd_c, fd_max;
 	struct sockaddr_un sa;
@@ -517,7 +459,7 @@ int main(int argc, char *argv[]) {
 							// coda pendenti piena
 							else {
 								#ifdef DEBUG
-								perror("coda pendenti piena");
+								perror("Coda pendenti piena");
 								#endif
 							}
 
@@ -534,7 +476,7 @@ int main(int argc, char *argv[]) {
 
 						else {
 							#ifdef DEBUG
-							printf("Nuova connessione rifiutata: il server è in fase di terminazione.\n");
+							printf("Nuova connessione rifiutata: il server e' in fase di terminazione.\n");
 							fflush(stdout);
 							#endif
 
@@ -675,7 +617,7 @@ int main(int argc, char *argv[]) {
 						// coda pendenti piena
 						else {
 							#ifdef DEBUG
-							perror("coda pendenti piena");
+							perror("Coda pendenti piena");
 							#endif
 						}
 
@@ -842,7 +784,7 @@ static void serverThread(void *par) {
 	}
 
 	#ifdef DEBUG
-	printf("SERVER THREAD: ho ricevuto %s! dal client %ld\n", buf, fd_c);
+	printf("SERVER THREAD: ho ricevuto %s dal client %ld\n", buf, fd_c);
 	fflush(stdout);
 	#endif
 
@@ -1821,7 +1763,7 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 		// se il file e' gia' stato lockato da un client diverso, inserisci il client nella lista d'attesa
 		if (strcmp(strerror(errno), "Operation not permitted") == 0) {
 			#ifdef DEBUG
-			printf("DEBUG file lockato\n");
+			printf("File lockato\n");
 			fflush(stdout);
 			#endif
 
@@ -1851,10 +1793,6 @@ void lockFile(char *filepath, queueT *queue, long fd_c, logT *logFileT, pthread_
 
 		// altrimenti c'e' stato un errore diverso
 		else {
-			#ifdef DEBUG
-			printf("DEBUG Errore diverso\n");
-			fflush(stdout);
-			#endif
 			memcpy(res, er, 3);
 		}
 	}
@@ -2258,7 +2196,7 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 
 	// invio prima il filepath...
 	#ifdef DEBUG
-	printf("invio il filepath: %s\n", f->filepath);
+	printf("Invio il filepath: %s\n", f->filepath);
 	fflush(stdout);
 	#endif
 
@@ -2273,7 +2211,7 @@ int sendFile(fileT *f, long fd_c, logT *logFileT) {
 
 	// ... poi la dimensione del file...
 	#ifdef DEBUG
-	printf("invio la size: %zu\n", f->size);
+	printf("Invio la size: %zu\n", f->size);
 	fflush(stdout);
 	#endif
 
@@ -2343,11 +2281,6 @@ int addWaiting(waitingT **waiting, char *file, int fd) {
 	// se la lista era vuota, il file aggiunto diventa il primo della lista
 	if (*waiting == NULL) {
 		*waiting = new;
-
-		#ifdef DEBUG
-		printf("La lista era vuota, aggiungo il file come primo della lista.\n");
-		printf("Adesso il primo elemento e' %ld %s.\n", new->fd, new->file);
-		#endif
 	}
 
 	// altrimenti, scorro tutta la lista e aggiungo il file come ultimo elemento
@@ -2385,11 +2318,6 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 		free(temp->file);
 		free(temp);
 
-		#ifdef DEBUG
-		printf("Ho trovato res = %ld.\n", res);
-		fflush(stdout);
-		#endif
-
 		return res;
 	}
 
@@ -2404,19 +2332,9 @@ int removeFirstWaiting(waitingT **waiting, char *file) {
 			free(temp->file);
 			free(temp);
 
-			#ifdef DEBUG
-			printf("Ho trovato res = %ld\n", res);
-			fflush(stdout);
-			#endif
-
 			return res;
 		}
 	}
-
-	#ifdef DEBUG
-	printf("Non ho trovato res.\n");
-	fflush(stdout);
-	#endif
 
 	return -1;
 }
@@ -2437,11 +2355,5 @@ void clearWaiting(waitingT **waiting) {
 				#endif
 			}
 		}
-	}
-
-	else {
-		#ifdef DEBUG
-		printf("La lista era vuota.\n");
-		#endif
 	}
 }

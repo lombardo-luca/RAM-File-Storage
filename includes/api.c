@@ -173,7 +173,7 @@ int openFile(const char* pathname, int flags) {
 
 	// invio il comando al server
 	#ifdef DEBUG
-	printf("openFile: invio %s!\n", cmd);
+	printf("openFile: invio %s\n", cmd);
 	fflush(stdout);
 	#endif 
 
@@ -186,10 +186,6 @@ int openFile(const char* pathname, int flags) {
 	void *buf = malloc(BUFSIZE);
 	int r = readn(fd_skt, buf, 3);
 	if (r == -1 || r == 0) {
-		#ifdef DEBUG
-		printf("r = %d\n", r);
-		fflush(stdout);
-		#endif
 		free(buf);
 		errno = EREMOTEIO;
 		return -1;
@@ -199,7 +195,7 @@ int openFile(const char* pathname, int flags) {
 	memcpy(res, buf, 3);
 
 	#ifdef DEBUG
-	printf("openFile: ho ricevuto: %s!\n", res);
+	printf("openFile: ho ricevuto: %s\n", res);
 	fflush(stdout);
 	#endif
 
@@ -475,7 +471,7 @@ int writeFile(const char* pathname, const char* dirname) {
 
 	// invio il comando al server
 	#ifdef DEBUG
-	printf("writeFile: invio %s!\n", cmd);
+	printf("writeFile: invio %s\n", cmd);
 	fflush(stdout);
 	#endif
 
@@ -499,7 +495,7 @@ int writeFile(const char* pathname, const char* dirname) {
 	memcpy(res, buf, 3);
 
 	#ifdef DEBUG
-	printf("writeFile: ho ricevuto: %s!\n", res);
+	printf("writeFile: ho ricevuto: %s\n", res);
 	fflush(stdout);
 	#endif
 
@@ -609,7 +605,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 
 	// invio il comando al server
 	#ifdef DEBUG
-	printf("appendToFile: invio %s!\n", cmd);
+	printf("appendToFile: invio %s\n", cmd);
 	fflush(stdout);
 	#endif
 
@@ -631,7 +627,7 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 	memcpy(res, readBuf, 3);
 
 	#ifdef DEBUG
-	printf("appendToFile: ho ricevuto: %s!\n", res);
+	printf("appendToFile: ho ricevuto: %s\n", res);
 	fflush(stdout);
 	#endif
 
