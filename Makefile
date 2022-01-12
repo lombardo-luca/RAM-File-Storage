@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 CC			=  gcc
 AR          =  ar
-CFLAGS	    += -Wall -pedantic -g
+CFLAGS	    += -Wall -std=gnu99 -g
 ARFLAGS     =  rvs
 INCDIR      = ./includes -I ./threadpool -I ./fileQueue -I ./partialIO -I ./api
 INCLUDES	= -I. -I $(INCDIR)
