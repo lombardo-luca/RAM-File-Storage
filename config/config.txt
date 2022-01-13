@@ -1,6 +1,6 @@
-threadpoolSize:4
-pendingQueueSize:100
+threadpoolSize:8
+pendingQueueSize:200
 sockName:mysock
-maxFiles:10
-maxSize:1000
+maxFiles:100
+maxSize:32000
 logFile:logs

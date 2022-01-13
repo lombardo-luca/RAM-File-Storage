@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
 	int sigPipe[2], requestPipe[2];			// pipe di comunicazione tra il main e il thread worker/signal handler
 	FILE *configFile;						// file di configurazione per il server
 	FILE *logFile;							// file di log
-	pthread_mutex_t lock;					// lock per le funzioni che opperano sul flag O_LOCK dei file
+	pthread_mutex_t lock;					// lock per le funzioni che operano sul flag O_LOCK dei file
 	volatile long quit = 0;					// se = 1, termina il server il prima possibile
 	sig_atomic_t numberOfConnections = 0;		// numero dei client attualmente connessi
 	sig_atomic_t stopIncomingConnections = 0;	// se = 1, non accetta più nuove connessioni dai client
@@ -373,7 +373,7 @@ int main(int argc, char *argv[]) {
 	fd_set set, tmpset;
 	FD_ZERO(&set);
 	FD_ZERO(&tmpset);
-	FD_SET(fd_skt, &set);			// al set da ascoltare aggiungo: il listener,
+	FD_SET(fd_skt, &set);			// al set da ascoltare aggiungo: il socket,
 	FD_SET(sigPipe[0], &set);		// l'fd di lettura della pipe fra sigThread e il manager,
 	FD_SET(requestPipe[0], &set);	// e quello della pipe fra i worker e il manager
 

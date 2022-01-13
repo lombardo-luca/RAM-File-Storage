@@ -148,7 +148,6 @@ int openFile(const char* pathname, int flags) {
 		return -1;
 	}
 
-
 	// controllo che il client non abbia gia' troppi file aperti
 	if (numOfFiles == MAX_OPEN_FILES) {
 		errno = EMFILE;
