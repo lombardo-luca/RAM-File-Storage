@@ -1,0 +1,39 @@
+name: Convert-PDF-to-Images
+
+on:
+  workflow_dispatch:
+
+jobs:
+  convert_and_update_readme:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Install Poppler
+        run: sudo apt-get install -y poppler-utils
+
+      - name: Check and Create Directory
+        run: |
+          if [ ! -d converted_images ]; then
+            mkdir converted_images
+          fi
+
+      - name: Convert PDF to Images
+        run: |
+          pdftoppm -jpeg -r 250 relazione.pdf converted_images/output
+
+      - name: Update README
+        run: |
+          for filename in converted_images/*.jpg; do \
+            echo "![image](./converted_images/$(basename $filename))" >> README.md; \
+          done
+
+      - name: Commit and Push Changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Actions"
+          git add README.md converted_images
+          git commit -m "Update README with converted images" -a
+          git push origin HEAD:${{ github.ref }}
